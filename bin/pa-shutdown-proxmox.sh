@@ -25,6 +25,17 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $1" >> "$LOG_FILE"
 }
 
+# Safety guard: only run from systemd unit with explicit execute flag.
+if [ "${1:-}" != "--execute" ]; then
+  log "Abort: missing required --execute flag"
+  exit 0
+fi
+
+if [ -z "${INVOCATION_ID:-}" ]; then
+  log "Abort: script not invoked by systemd"
+  exit 0
+fi
+
 wait_for_shutdown() {
   local TYPE="$1"
   local ID="$2"
@@ -67,6 +78,7 @@ fi
 
 START_TS="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 log "==== $NODE_NAME shutdown started at $START_TS (agent v${AGENT_VERSION:-unknown}) ===="
+log "Invocation ID: ${INVOCATION_ID}"
 logger "Proxmox $NODE_NAME shutdown initiated"
 
 /usr/local/bin/pa-send-telegram.sh "Proxmox $NODE_NAME shutdown started at <b>$START_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
@@ -102,14 +114,15 @@ for lxcid in $(pct list | awk 'NR>1 {print $1}'); do
   fi
 done
 
-log "Waiting 10 seconds before host shutdown..."
-sleep 10
-
 FINAL_TS="$(date '+%Y-%m-%d %H:%M:%S %Z')"
-log "Shutting down host now"
-logger "Proxmox $NODE_NAME shutting down"
+log "Sending final shutdown notification"
 
 /usr/local/bin/pa-send-telegram.sh "Proxmox host <b>$NODE_NAME</b> shutting down at <b>$FINAL_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
 pa_send_webhook "shutdown" "success" "Shutdown sequence complete" "Node $NODE_NAME is shutting down now." || true
+
+sleep 3
+
+log "Shutting down host now"
+logger "Proxmox $NODE_NAME shutting down"
 
 /sbin/shutdown -h now

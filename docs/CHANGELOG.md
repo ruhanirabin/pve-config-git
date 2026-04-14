@@ -1,3 +1,10 @@
+## 0.7.9
+
+- fix: prevent duplicate boot notifications across service retries by using per-boot dedupe locks.
+- fix: allow boot notification retry when Telegram send fails by writing dedupe lock only after a successful send.
+- improve: harden shutdown execution path by requiring explicit systemd invocation guard and execution flag.
+- improve: align shutdown service and script flow for final notification timing before host halt.
+
 ## 0.7.8
 
 - feat: add read-only preinstall simulation command (`proxmox-agent preinstall-report` / `pa-doctor`) showing current state, planned changes, blockers, and warnings.

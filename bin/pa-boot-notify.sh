@@ -19,7 +19,8 @@ NODE_NAME="$(hostname -s 2>/dev/null || hostname)"
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 BOOT_TIME="$(uptime -s 2>/dev/null || echo "unknown")"
 LOG_FILE="/var/log/pa-boot-notify.log"
-LOCK_FILE="/tmp/pa_boot_notify.lock"
+BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
+LOCK_FILE="/tmp/pa_boot_notify_${BOOT_ID}.lock"
 
 pa_rotate_log_family "$LOG_FILE" "${BOOT_NOTIFY_LOG_RETENTION_DAYS:-}"
 
@@ -28,7 +29,6 @@ if [ -f "$LOCK_FILE" ]; then
   exit 0
 fi
 
-touch "$LOCK_FILE"
 sleep 5
 
 MESSAGE=$(cat <<EOF
@@ -39,7 +39,13 @@ Agent: <b>v${AGENT_VERSION:-unknown}</b>
 EOF
 )
 
+if [ -z "${MESSAGE//[[:space:]]/}" ]; then
+  echo "[$TIMESTAMP] ERROR empty boot message blocked for $NODE_NAME" >> "$LOG_FILE"
+  exit 0
+fi
+
 if /usr/local/bin/pa-send-telegram.sh "$MESSAGE"; then
+  touch "$LOCK_FILE"
   echo "[$TIMESTAMP] OK boot notification sent for $NODE_NAME" >> "$LOG_FILE"
 else
   echo "[$TIMESTAMP] ERROR failed to send boot notification for $NODE_NAME" >> "$LOG_FILE"
