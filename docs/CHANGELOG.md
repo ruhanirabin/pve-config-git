@@ -1,3 +1,9 @@
+## 0.7.17
+
+- fix: prevent prompt text leakage into captured values by sending generic choice prompts to stderr.
+- improve: replace notification mode input with numbered menu (Telegram, Webhook, Both, Do it later with placeholders).
+- improve: support placeholder notification mode so guided install can continue with explicit placeholder values.
+
 ## 0.7.16
 
 - improve: enforce SSH key display logic in guided setup: show existing public key, or generate keypair then show key paths and public key content.
