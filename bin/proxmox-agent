@@ -19,6 +19,38 @@ PA_RUNTIME_VERSION_FILE="$PA_BIN_TARGET/pa-agent-version"
 PA_RUNTIME_VERSION_LEGACY="$PA_BIN_TARGET/proxmox-agent-version"
 PA_BACKUP_DIR_BASE="/root/proxmox-agent-backups"
 PA_UPGRADE_LOG="/var/log/proxmox-agent-upgrade.log"
+PA_CAN_COLOR=0
+
+if [ -t 1 ]; then
+  PA_CAN_COLOR=1
+fi
+
+if [ "$PA_CAN_COLOR" -eq 1 ]; then
+  C_RESET=$'\033[0m'
+  C_BOLD=$'\033[1m'
+  C_CYAN=$'\033[36m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'
+else
+  C_RESET=""
+  C_BOLD=""
+  C_CYAN=""
+  C_GREEN=""
+  C_YELLOW=""
+  C_RED=""
+fi
+
+ICON_INFO="[i]"
+ICON_OK="[+]"
+ICON_WARN="[!]"
+ICON_ERR="[x]"
+ICON_Q="[?]"
+
+ui_info() { echo "${C_CYAN}${ICON_INFO}${C_RESET} $*"; }
+ui_ok() { echo "${C_GREEN}${ICON_OK}${C_RESET} $*"; }
+ui_warn() { echo "${C_YELLOW}${ICON_WARN}${C_RESET} $*"; }
+ui_err() { echo "${C_RED}${ICON_ERR}${C_RESET} $*" >&2; }
 
 PA_CANONICAL_BIN_FILES=(
   "pa-backup-config.sh"
@@ -69,10 +101,10 @@ prompt_yes_no() {
   local answer
   while true; do
     if [ "$default" = "y" ]; then
-      read -r -p "$prompt [Y/n]: " answer
+      read -r -p "${ICON_Q} $prompt [Y/n]: " answer
       answer="${answer:-y}"
     else
-      read -r -p "$prompt [y/N]: " answer
+      read -r -p "${ICON_Q} $prompt [y/N]: " answer
       answer="${answer:-n}"
     fi
     case "$(echo "$answer" | tr '[:upper:]' '[:lower:]')" in
@@ -99,21 +131,21 @@ preflight_checks() {
   local c
   for c in bash git curl ssh ssh-keygen systemctl; do
     if command -v "$c" >/dev/null 2>&1; then
-      echo "OK   dependency: $c"
+      ui_ok "dependency: $c"
     else
-      echo "MISS dependency: $c"
+      ui_err "dependency missing: $c"
       missing=1
     fi
   done
   if [ "$missing" -ne 0 ]; then
-    echo "Install blocked: missing required dependencies."
+    ui_err "Install blocked: missing required dependencies."
     return 1
   fi
 }
 
 require_root() {
   if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    echo "This command must be run as root."
+    ui_err "This command must be run as root."
     exit 1
   fi
 }
@@ -464,7 +496,8 @@ doctor_emit_json() {
 
 cmd_install() {
   require_root
-  echo "Proxmox Agent installer starting..."
+  echo "${C_BOLD}Proxmox Agent installer${C_RESET}"
+  ui_info "Starting guided installation..."
 
   preflight_checks || exit 1
 
@@ -480,14 +513,14 @@ cmd_install() {
 
   pa_load_version
   if [ "${AGENT_VERSION:-unknown}" != "unknown" ]; then
-    echo "Detected existing installation version: v$AGENT_VERSION"
+    ui_warn "Detected existing installation version: v$AGENT_VERSION"
     if ! prompt_yes_no "Proceed with reinstall/upgrade on this node?" "y"; then
-      echo "Install cancelled."
+      ui_warn "Install cancelled by user."
       exit 0
     fi
   fi
   if [ "$legacy_before" -eq 1 ]; then
-    echo "Detected legacy artifacts. Installer will migrate them to pa-* naming."
+    ui_warn "Detected legacy artifacts. Installer will migrate to pa-* naming."
   fi
 
   set +e
@@ -498,20 +531,21 @@ cmd_install() {
     write_runtime_version "$(get_repo_version)"
     generate_ssh_key_if_missing
 
-    echo "Public SSH key (add to GitHub):"
+    ui_info "Public SSH key (add to GitHub):"
     cat /root/.ssh/id_ed25519.pub
     echo
-    read -r -p "After adding the key to GitHub, press ENTER to continue..."
+    read -r -p "${ICON_Q} After adding the key to GitHub, press ENTER to continue..."
 
     validate_github_ssh || rc=1
     [ "$rc" -eq 0 ] && configure_repo_remote_if_needed
     if [ "$rc" -eq 0 ]; then
       pa_load_env
       if [ -z "${GIT_REMOTE_URL:-}" ] && [ ! -f "$PA_ENV_TARGET" -o -f "$PA_ENV_TARGET" ]; then
-        echo "GIT_REMOTE_URL is not set in $PA_ENV_TARGET."
-        read -r -p "Enter Git remote URL (ssh format, e.g. git@github.com:USER/REPO.git): " user_remote
+        ui_warn "GIT_REMOTE_URL is not set in $PA_ENV_TARGET."
+        read -r -p "${ICON_Q} Enter Git remote URL (ssh format, e.g. git@github.com:USER/REPO.git): " user_remote
         if [ -n "$user_remote" ]; then
           set_env_kv "$PA_ENV_TARGET" "GIT_REMOTE_URL" "$user_remote"
+          ui_ok "Saved GIT_REMOTE_URL in $PA_ENV_TARGET"
         fi
       fi
       configure_repo_remote_if_needed
@@ -530,18 +564,18 @@ cmd_install() {
 
   if [ "$rc" -ne 0 ]; then
     restore_from_backup "$backup_dir"
-    echo "Install failed and was rolled back from $backup_dir."
+    ui_err "Install failed and was rolled back from $backup_dir."
     exit 1
   fi
 
   pa_load_version
   pa_load_env
   pa_send_webhook "install" "success" "Install completed" "Proxmox agent installed. migrated_legacy=$migrated" || true
-  echo "Install complete (agent v$(get_repo_version), migrated_legacy=$migrated)."
-  echo "Next steps:"
-  echo "1) Verify: proxmox-agent doctor --json"
-  echo "2) Test backup: proxmox-agent backup"
-  echo "3) Review timer: systemctl status pa-backup-config.timer"
+  ui_ok "Install complete (agent v$(get_repo_version), migrated_legacy=$migrated)."
+  ui_info "Next steps:"
+  echo "  1) proxmox-agent doctor --json"
+  echo "  2) proxmox-agent backup"
+  echo "  3) systemctl status pa-backup-config.timer"
 }
 
 cmd_doctor() {
@@ -642,9 +676,9 @@ cmd_notify() {
   require_root
   local msg="${1:-Proxmox agent notification test}"
   if "$PA_BIN_TARGET/pa-send-telegram.sh" "$msg"; then
-    echo "Telegram notification sent."
+    ui_ok "Telegram notification sent."
   else
-    echo "Telegram notification failed."
+    ui_err "Telegram notification failed."
     exit 1
   fi
 }
@@ -695,7 +729,7 @@ cmd_upgrade() {
   done
 
   if [ -z "$source" ]; then
-    echo "AGENT_UPDATE_SOURCE is required for upgrade."
+    ui_err "AGENT_UPDATE_SOURCE is required for upgrade."
     exit 1
   fi
 
@@ -716,22 +750,22 @@ cmd_upgrade() {
 
   if [ "$channel" = "stable" ]; then
     [ -n "$target" ] || target="$(resolve_latest_tag "$source")"
-    [ -n "$target" ] || { echo "Cannot resolve stable target tag."; exit 1; }
+    [ -n "$target" ] || { ui_err "Cannot resolve stable target tag."; exit 1; }
     git clone --depth 1 --branch "$target" "$source" "$tmpdir/src" >/dev/null 2>&1
     srcdir="$tmpdir/src"
   elif [ "$channel" = "edge" ]; then
     srcdir="$(extract_edge_source "$source" "$tmpdir")"
-    [ -n "$srcdir" ] || { echo "Cannot extract edge source."; exit 1; }
+    [ -n "$srcdir" ] || { ui_err "Cannot extract edge source."; exit 1; }
   else
-    echo "Invalid channel: $channel"
+    ui_err "Invalid channel: $channel"
     exit 1
   fi
 
-  [ -f "$srcdir/VERSION" ] || { echo "Upgrade source missing VERSION file."; exit 1; }
+  [ -f "$srcdir/VERSION" ] || { ui_err "Upgrade source missing VERSION file."; exit 1; }
   target_version="$(tr -d '[:space:]' < "$srcdir/VERSION")"
 
   if [ "$current_version" = "$target_version" ]; then
-    echo "Already up to date (v$current_version)."
+    ui_info "Already up to date (v$current_version)."
     exit 0
   fi
 
@@ -756,7 +790,7 @@ cmd_upgrade() {
 
   if [ "$rc" -ne 0 ]; then
     restore_from_backup "$backup_dir"
-    echo "Post-upgrade validation failed; rolled back from $backup_dir."
+    ui_err "Post-upgrade validation failed; rolled back from $backup_dir."
     exit 1
   fi
 
@@ -766,7 +800,7 @@ cmd_upgrade() {
     "Upgraded from v$current_version to v$target_version via $channel; migrated_legacy=$migrated." || true
 
   echo "$(date -Is) status=success migrated_legacy=$migrated" >> "$PA_UPGRADE_LOG"
-  echo "Upgrade complete: v$current_version -> v$target_version ($channel, migrated_legacy=$migrated)."
+  ui_ok "Upgrade complete: v$current_version -> v$target_version ($channel, migrated_legacy=$migrated)."
 }
 
 usage() {
@@ -794,7 +828,7 @@ main() {
     upgrade) cmd_upgrade "$@" ;;
     ""|-h|--help|help) usage ;;
     *)
-      echo "Unknown command: $cmd"
+      ui_err "Unknown command: $cmd"
       usage
       exit 1
       ;;

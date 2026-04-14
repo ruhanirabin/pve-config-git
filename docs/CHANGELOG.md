@@ -1,3 +1,9 @@
+## 0.7.5
+
+- improve: beautify installer and CLI user prompts with iconized status output for clearer guidance.
+- feat: add startup ASCII banner loading from `assets/installer-banner.txt` in guided installer flow.
+- feat: add single-line animated progress UI (progress bar + spinner) for installer phase feedback.
+
 ## 0.7.4
 
 - improve: add configurable log retention for all `pa-*` custom logs with global and per-script overrides.
