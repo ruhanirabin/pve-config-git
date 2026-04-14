@@ -1,3 +1,8 @@
+## 0.7.13
+
+- improve: always display the node OpenSSH public key during guided GitHub SSH setup, generating it first if missing.
+- improve: add explicit GitHub copy/paste instructions in installer output for SSH key onboarding.
+
 ## 0.7.12
 
 - fix: validate guided `GIT_REMOTE_URL` as a proper GitHub owner/repo URL for both SSH and HTTPS formats.
