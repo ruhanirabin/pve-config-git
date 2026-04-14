@@ -1,3 +1,8 @@
+## 0.7.11
+
+- fix: prefer repo-local `pa-agent-lib.sh` during source-based runs so guided preinstall/install use matching library functions.
+- fix: prevent `pa_ui_init: command not found` when hosts have older installed library versions and bootstrap runs newer fetched CLI code.
+
 ## 0.7.10
 
 - feat: add resumable guided install drafts with explicit `install --resume` and `install --clear-draft` controls.

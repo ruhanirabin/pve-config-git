@@ -5,8 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION_FILE="$REPO_ROOT/VERSION"
-LIB_FILE="${LIB_FILE:-/usr/local/bin/pa-agent-lib.sh}"
-[ -f "$LIB_FILE" ] || LIB_FILE="$SCRIPT_DIR/pa-agent-lib.sh"
+LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pa-agent-lib.sh}"
+[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pa-agent-lib.sh"
 # shellcheck disable=SC1090
 source "$LIB_FILE"
 
