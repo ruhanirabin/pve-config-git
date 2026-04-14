@@ -1,3 +1,7 @@
+## 0.7.18
+
+- improve: replace final validation action input with numbered menu choices (Install, Save, Exit) while keeping text aliases supported.
+
 ## 0.7.17
 
 - fix: prevent prompt text leakage into captured values by sending generic choice prompts to stderr.

@@ -183,6 +183,34 @@ prompt_notification_mode() {
   done
 }
 
+prompt_final_action() {
+  local current="${1:-install}"
+  local default_num="1"
+  local answer normalized
+
+  case "$current" in
+    install) default_num="1" ;;
+    save) default_num="2" ;;
+    exit) default_num="3" ;;
+    *) default_num="1" ;;
+  esac
+
+  while true; do
+    echo "${ICON_Q} Final action:" >&2
+    echo "  1. Install (apply settings and continue)" >&2
+    echo "  2. Save (save settings and continue later)" >&2
+    echo "  3. Exit (cancel without applying settings)" >&2
+    read -r -p "${ICON_Q} Choose [1-3] [${default_num}]: " answer
+    normalized="$(echo "${answer:-$default_num}" | tr '[:upper:]' '[:lower:]')"
+    case "$normalized" in
+      1|install) echo "install"; return 0 ;;
+      2|save) echo "save"; return 0 ;;
+      3|exit) echo "exit"; return 0 ;;
+      *) ui_warn "Invalid choice: ${answer:-$default_num}" ;;
+    esac
+  done
+}
+
 detect_pkg_manager() {
   if command -v apt-get >/dev/null 2>&1; then
     echo "apt"
@@ -724,7 +752,7 @@ guided_env_setup() {
   fi
 
   local final_action
-  final_action="$(prompt_choice "Final action" "install" "install" "save" "exit")"
+  final_action="$(prompt_final_action "install")"
   case "$final_action" in
     save)
       save_install_draft "$repo_dir" "$repo_branch" "$remote_url" "$retention_days" "$notify_mode" "$bot_token" "$chat_id" "$webhook_url" "$webhook_token"
