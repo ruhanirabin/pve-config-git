@@ -1,3 +1,9 @@
+## 0.7.12
+
+- fix: validate guided `GIT_REMOTE_URL` as a proper GitHub owner/repo URL for both SSH and HTTPS formats.
+- improve: remove duplicate install confirmations by using reinstall confirmation only when an existing install is detected.
+- improve: show explicit local git workspace initialization/remote-configuration status near install completion.
+
 ## 0.7.11
 
 - fix: prefer repo-local `pa-agent-lib.sh` during source-based runs so guided preinstall/install use matching library functions.

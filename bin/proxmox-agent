@@ -323,6 +323,14 @@ is_supported_remote_url() {
   is_ssh_remote_url "$remote_url" || is_https_remote_url "$remote_url"
 }
 
+is_github_remote_url() {
+  local remote_url="${1:-}"
+  [[ "$remote_url" =~ ^git@github\.com:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(\.git)?$ ]] && return 0
+  [[ "$remote_url" =~ ^ssh://git@github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(\.git)?/?$ ]] && return 0
+  [[ "$remote_url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(\.git)?/?$ ]] && return 0
+  return 1
+}
+
 mask_secret_value() {
   local v="${1:-}"
   if [ -z "$v" ]; then
@@ -390,6 +398,12 @@ validate_guided_inputs() {
       ui_ok "git_remote_url format valid (SSH)"
     else
       ui_ok "git_remote_url format valid (HTTPS)"
+    fi
+    if is_github_remote_url "$remote_url"; then
+      ui_ok "git_remote_url target valid (github.com owner/repo)"
+    else
+      ui_err "git_remote_url must be a GitHub repository URL (github.com/OWNER/REPO)"
+      failed=1
     fi
   else
     ui_err "git_remote_url must be SSH or HTTPS"
@@ -550,15 +564,32 @@ guided_env_setup() {
   repo_dir="$(prompt_value "Backup local repo directory" "$repo_dir")"
   repo_branch="$(prompt_value "Backup git branch" "$repo_branch")"
   remote_url="$(prompt_value "Git remote URL (SSH or HTTPS)" "$remote_url")"
-  while ! is_supported_remote_url "$remote_url"; do
+  while true; do
     if [ -z "$remote_url" ]; then
       ui_warn "Git remote URL is required for automated backup pushes."
-    else
-      ui_warn "Remote URL must be SSH (git@... or ssh://...) or HTTPS (https://...)."
+      print_repo_url_guidance
+      remote_url="$(prompt_value "Git remote URL (SSH or HTTPS)" "")"
+      continue
     fi
-    print_repo_url_guidance
-    remote_url="$(prompt_value "Git remote URL (SSH or HTTPS)" "")"
+    if ! is_supported_remote_url "$remote_url"; then
+      ui_warn "Remote URL must be SSH (git@... or ssh://...) or HTTPS (https://...)."
+      print_repo_url_guidance
+      remote_url="$(prompt_value "Git remote URL (SSH or HTTPS)" "")"
+      continue
+    fi
+    if ! is_github_remote_url "$remote_url"; then
+      ui_warn "Remote URL must target github.com in OWNER/REPO format."
+      print_repo_url_guidance
+      remote_url="$(prompt_value "Git remote URL (SSH or HTTPS)" "")"
+      continue
+    fi
+    break
   done
+  if is_ssh_remote_url "$remote_url"; then
+    ui_ok "GitHub remote URL accepted (SSH)."
+  else
+    ui_ok "GitHub remote URL accepted (HTTPS)."
+  fi
   retention_days="$(prompt_value "Log retention days" "$retention_days")"
 
   ui_info "Configure notifications."
@@ -868,24 +899,40 @@ cmd_preinstall_report() {
 }
 
 configure_repo_remote_if_needed() {
-  local repo_dir branch remote_from_env
+  local repo_dir branch remote_from_env repo_created remote_action
   pa_load_env
   repo_dir="${REPO_DIR:-/root/pve-config}"
   branch="${REPO_BRANCH:-main}"
   remote_from_env="${GIT_REMOTE_URL:-}"
+  repo_created=0
+  remote_action="none"
 
+  ui_info "Preparing local git workspace: $repo_dir"
   mkdir -p "$repo_dir"
   if [ ! -d "$repo_dir/.git" ]; then
     git -C "$repo_dir" init -b "$branch"
+    repo_created=1
   fi
 
   if [ -n "$remote_from_env" ]; then
     if git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
       git -C "$repo_dir" remote set-url origin "$remote_from_env"
+      remote_action="updated"
     else
       git -C "$repo_dir" remote add origin "$remote_from_env"
+      remote_action="added"
     fi
   fi
+
+  if [ "$repo_created" -eq 1 ]; then
+    ui_ok "Initialized git repository at $repo_dir (branch $branch)."
+  else
+    ui_ok "Using existing git repository at $repo_dir."
+  fi
+  case "$remote_action" in
+    added) ui_ok "Configured git remote 'origin' -> $remote_from_env" ;;
+    updated) ui_ok "Updated git remote 'origin' -> $remote_from_env" ;;
+  esac
 }
 
 validate_git_remote_access() {
@@ -1232,9 +1279,18 @@ cmd_install() {
   fi
 
   preflight_checks || exit 1
-  if ! prompt_yes_no "Proceed with installation changes on this node?" "n"; then
-    ui_warn "Install cancelled by user."
-    exit 0
+  pa_load_version
+  if [ "${AGENT_VERSION:-unknown}" != "unknown" ]; then
+    ui_warn "Detected existing installation version: v$AGENT_VERSION"
+    if ! prompt_yes_no "Proceed with reinstall/upgrade on this node?" "y"; then
+      ui_warn "Install cancelled by user."
+      exit 0
+    fi
+  else
+    if ! prompt_yes_no "Proceed with installation changes on this node?" "n"; then
+      ui_warn "Install cancelled by user."
+      exit 0
+    fi
   fi
 
   local ts backup_dir legacy_before migrated
@@ -1247,14 +1303,6 @@ cmd_install() {
   detect_legacy_artifacts && legacy_before=1
   migrated=0
 
-  pa_load_version
-  if [ "${AGENT_VERSION:-unknown}" != "unknown" ]; then
-    ui_warn "Detected existing installation version: v$AGENT_VERSION"
-    if ! prompt_yes_no "Proceed with reinstall/upgrade on this node?" "y"; then
-      ui_warn "Install cancelled by user."
-      exit 0
-    fi
-  fi
   if [ "$legacy_before" -eq 1 ]; then
     ui_warn "Detected legacy artifacts. Installer will migrate to pa-* naming."
   fi
