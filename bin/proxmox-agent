@@ -52,6 +52,18 @@ ui_ok() { echo "${C_GREEN}${ICON_OK}${C_RESET} $*"; }
 ui_warn() { echo "${C_YELLOW}${ICON_WARN}${C_RESET} $*"; }
 ui_err() { echo "${C_RED}${ICON_ERR}${C_RESET} $*" >&2; }
 
+is_test_mode() {
+  pa_bool_true "${PA_TEST_MODE:-false}"
+}
+
+pa_systemctl() {
+  if is_test_mode; then
+    ui_warn "[test mode] skipped: systemctl $*"
+    return 0
+  fi
+  systemctl "$@"
+}
+
 PA_CANONICAL_BIN_FILES=(
   "pa-doctor.sh"
   "pa-backup-config.sh"
@@ -163,7 +175,7 @@ prompt_choice() {
 preflight_checks() {
   local missing=0
   local c
-  for c in bash git curl ssh ssh-keygen systemctl; do
+  for c in bash git curl ssh ssh-keygen; do
     if command -v "$c" >/dev/null 2>&1; then
       ui_ok "dependency: $c"
     else
@@ -171,6 +183,16 @@ preflight_checks() {
       missing=1
     fi
   done
+  if is_test_mode; then
+    ui_warn "PA_TEST_MODE=true -> skipping hard dependency check for systemctl."
+  else
+    if command -v systemctl >/dev/null 2>&1; then
+      ui_ok "dependency: systemctl"
+    else
+      ui_err "dependency missing: systemctl"
+      missing=1
+    fi
+  fi
   if [ "$missing" -ne 0 ]; then
     ui_err "Install blocked: missing required dependencies."
     return 1
@@ -206,6 +228,9 @@ generate_ssh_key_if_missing() {
 }
 
 validate_github_ssh() {
+  if is_test_mode; then
+    return 0
+  fi
   local output
   set +e
   output="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -T git@github.com 2>&1)"
@@ -278,6 +303,10 @@ guided_env_setup() {
 }
 
 guided_github_auth() {
+  if is_test_mode; then
+    ui_warn "PA_TEST_MODE=true -> skipping interactive GitHub SSH validation."
+    return 0
+  fi
   ui_info "Checking GitHub SSH authentication."
   while true; do
     if validate_github_ssh; then
@@ -326,13 +355,20 @@ collect_preinstall_report_data() {
   PRE_CANONICAL_UNITS_PRESENT=()
 
   local dep
-  for dep in bash git curl ssh ssh-keygen systemctl; do
+  for dep in bash git curl ssh ssh-keygen; do
     if command -v "$dep" >/dev/null 2>&1; then
       PRE_DEPS_OK+=("$dep")
     else
       PRE_DEPS_MISSING+=("$dep")
     fi
   done
+  if ! is_test_mode; then
+    if command -v systemctl >/dev/null 2>&1; then
+      PRE_DEPS_OK+=("systemctl")
+    else
+      PRE_DEPS_MISSING+=("systemctl")
+    fi
+  fi
   if [ "${#PRE_DEPS_MISSING[@]}" -gt 0 ]; then
     PRE_BLOCKERS+=("Missing dependencies: ${PRE_DEPS_MISSING[*]}")
   fi
@@ -370,7 +406,9 @@ collect_preinstall_report_data() {
     PRE_BLOCKERS+=("GIT_REMOTE_URL is not configured")
   fi
 
-  if ! validate_github_ssh; then
+  if is_test_mode; then
+    PRE_NOTES+=("PA_TEST_MODE=true; GitHub SSH and systemctl enforcement are relaxed for test runs")
+  elif ! validate_github_ssh; then
     PRE_WARNINGS+=("GitHub SSH auth is not currently valid; installer will guide key setup/retry")
   fi
 
@@ -567,8 +605,8 @@ capture_unit_states() {
 disable_all_managed_units() {
   local unit
   for unit in "${PA_CANONICAL_UNIT_FILES[@]}" "${PA_LEGACY_UNIT_FILES[@]}"; do
-    systemctl stop "$unit" >/dev/null 2>&1 || true
-    systemctl disable "$unit" >/dev/null 2>&1 || true
+    pa_systemctl stop "$unit" >/dev/null 2>&1 || true
+    pa_systemctl disable "$unit" >/dev/null 2>&1 || true
   done
 }
 
@@ -579,8 +617,8 @@ restore_unit_states() {
   if [ -f "$backup_dir/unit-states.txt" ]; then
     while IFS= read -r unit; do
       [ -n "$unit" ] || continue
-      systemctl enable "$unit" >/dev/null 2>&1 || true
-      [[ "$unit" == *.timer ]] && systemctl start "$unit" >/dev/null 2>&1 || true
+      pa_systemctl enable "$unit" >/dev/null 2>&1 || true
+      [[ "$unit" == *.timer ]] && pa_systemctl start "$unit" >/dev/null 2>&1 || true
     done < "$backup_dir/unit-states.txt"
   fi
 }
@@ -634,7 +672,7 @@ restore_from_backup() {
   [ -f "$backup_dir/env/.pa-agent.env" ] && install -m 600 "$backup_dir/env/.pa-agent.env" "$PA_ENV_TARGET"
   [ -f "$backup_dir/env/.backup-config.env" ] && install -m 600 "$backup_dir/env/.backup-config.env" "$PA_ENV_LEGACY"
 
-  systemctl daemon-reload
+  pa_systemctl daemon-reload
   restore_unit_states "$backup_dir"
 }
 
@@ -648,8 +686,8 @@ migrate_env_file() {
 disable_legacy_units() {
   local unit
   for unit in "${PA_LEGACY_UNIT_FILES[@]}"; do
-    systemctl stop "$unit" >/dev/null 2>&1 || true
-    systemctl disable "$unit" >/dev/null 2>&1 || true
+    pa_systemctl stop "$unit" >/dev/null 2>&1 || true
+    pa_systemctl disable "$unit" >/dev/null 2>&1 || true
   done
 }
 
@@ -730,9 +768,9 @@ install_canonical_files_from_source_dir() {
 }
 
 enable_canonical_services() {
-  systemctl daemon-reload
-  systemctl enable pa-backup-config.timer pa-shutdown-proxmox.service pa-boot-notify.service
-  systemctl start pa-backup-config.timer || true
+  pa_systemctl daemon-reload
+  pa_systemctl enable pa-backup-config.timer pa-shutdown-proxmox.service pa-boot-notify.service
+  pa_systemctl start pa-backup-config.timer || true
 }
 
 doctor_add_result() {
@@ -765,6 +803,10 @@ doctor_check_exec() {
 
 doctor_check_service_state() {
   local unit="$1"
+  if is_test_mode; then
+    doctor_add_result "enabled:$unit" "ok" "skipped (test mode)"
+    return 0
+  fi
   if systemctl is-enabled "$unit" >/dev/null 2>&1; then
     doctor_add_result "enabled:$unit" "ok" "enabled"
   else
@@ -774,6 +816,10 @@ doctor_check_service_state() {
 
 doctor_check_active_state() {
   local unit="$1"
+  if is_test_mode; then
+    doctor_add_result "active:$unit" "ok" "skipped (test mode)"
+    return 0
+  fi
   if systemctl is-active "$unit" >/dev/null 2>&1; then
     doctor_add_result "active:$unit" "ok" "active"
   else
@@ -856,7 +902,7 @@ cmd_install() {
     [ "$rc" -eq 0 ] && enable_canonical_services || rc=1
     if [ "$rc" -eq 0 ] && [ "$legacy_before" -eq 1 ]; then
       remove_legacy_artifacts
-      systemctl daemon-reload
+      pa_systemctl daemon-reload
       migrated=1
     fi
     [ "$rc" -eq 0 ] && "$PA_BIN_TARGET/proxmox-agent" doctor >/dev/null 2>&1 || rc=1
@@ -876,7 +922,11 @@ cmd_install() {
   ui_info "Next steps:"
   echo "  1) proxmox-agent doctor --json"
   echo "  2) proxmox-agent backup"
-  echo "  3) systemctl status pa-backup-config.timer"
+  if is_test_mode; then
+    echo "  3) [test mode] systemctl checks skipped"
+  else
+    echo "  3) systemctl status pa-backup-config.timer"
+  fi
 }
 
 cmd_doctor() {
@@ -893,7 +943,11 @@ cmd_doctor() {
   doctor_check_binary git
   doctor_check_binary curl
   doctor_check_binary ssh
-  doctor_check_binary systemctl
+  if is_test_mode; then
+    doctor_add_result "bin:systemctl" "ok" "skipped (test mode)"
+  else
+    doctor_check_binary systemctl
+  fi
 
   pa_load_version
   if [ "${AGENT_VERSION:-unknown}" = "unknown" ]; then
@@ -1025,7 +1079,7 @@ cmd_upgrade() {
     case "$1" in
       --channel) channel="${2:-}"; shift 2 ;;
       --target) target="${2:-}"; shift 2 ;;
-      *) echo "Unknown option: $1"; exit 1 ;;
+      *) ui_err "Unknown option: $1"; exit 1 ;;
     esac
   done
 
@@ -1082,7 +1136,7 @@ cmd_upgrade() {
     enable_canonical_services || rc=1
     if [ "$rc" -eq 0 ] && [ "$legacy_before" -eq 1 ]; then
       remove_legacy_artifacts
-      systemctl daemon-reload
+      pa_systemctl daemon-reload
       migrated=1
     fi
     [ "$rc" -eq 0 ] && "$PA_BIN_TARGET/proxmox-agent" doctor >/dev/null 2>&1 || rc=1

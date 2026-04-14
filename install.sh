@@ -157,7 +157,7 @@ print_intro() {
 preflight() {
   [ "$(id -u)" -eq 0 ] || die "Run as root."
   local c missing=0
-  for c in bash curl tar git systemctl ssh ssh-keygen; do
+  for c in bash curl tar git ssh ssh-keygen; do
     if command -v "$c" >/dev/null 2>&1; then
       ui_ok "dependency: $c"
     else
@@ -165,6 +165,16 @@ preflight() {
       missing=1
     fi
   done
+  if [ "${PA_TEST_MODE:-false}" = "true" ]; then
+    ui_warn "PA_TEST_MODE=true -> skipping hard dependency check for systemctl."
+  else
+    if command -v systemctl >/dev/null 2>&1; then
+      ui_ok "dependency: systemctl"
+    else
+      ui_err "dependency missing: systemctl"
+      missing=1
+    fi
+  fi
   [ "$missing" -eq 0 ] || die "Install blocked due to missing dependencies."
 }
 
