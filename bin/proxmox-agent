@@ -53,6 +53,7 @@ ui_warn() { echo "${C_YELLOW}${ICON_WARN}${C_RESET} $*"; }
 ui_err() { echo "${C_RED}${ICON_ERR}${C_RESET} $*" >&2; }
 
 PA_CANONICAL_BIN_FILES=(
+  "pa-doctor.sh"
   "pa-backup-config.sh"
   "pa-boot-notify.sh"
   "pa-send-telegram.sh"
@@ -126,6 +127,39 @@ set_env_kv() {
   fi
 }
 
+prompt_value() {
+  local prompt="$1"
+  local default="${2:-}"
+  local answer
+  if [ -n "$default" ]; then
+    read -r -p "${ICON_Q} $prompt [$default]: " answer
+    echo "${answer:-$default}"
+  else
+    read -r -p "${ICON_Q} $prompt: " answer
+    echo "$answer"
+  fi
+}
+
+prompt_choice() {
+  local prompt="$1"
+  local default="$2"
+  shift 2
+  local options=("$@")
+  local answer normalized
+  while true; do
+    echo "${ICON_Q} $prompt (${options[*]}) [${default}]"
+    read -r -p "> " answer
+    normalized="$(echo "${answer:-$default}" | tr '[:upper:]' '[:lower:]')"
+    for opt in "${options[@]}"; do
+      if [ "$normalized" = "$opt" ]; then
+        echo "$normalized"
+        return 0
+      fi
+    done
+    ui_warn "Invalid choice: ${answer:-$default}"
+  done
+}
+
 preflight_checks() {
   local missing=0
   local c
@@ -177,6 +211,284 @@ validate_github_ssh() {
   output="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -T git@github.com 2>&1)"
   set -e
   echo "$output" | grep -qi "successfully authenticated"
+}
+
+guided_env_setup() {
+  [ -f "$PA_ENV_TARGET" ] || install -m 600 "$PA_ENV_EXAMPLE_SOURCE" "$PA_ENV_TARGET"
+  pa_load_env
+
+  ui_info "Configure backup repository settings."
+  local repo_dir repo_branch remote_url retention_days
+  repo_dir="$(prompt_value "Backup local repo directory" "${REPO_DIR:-/root/pve-config}")"
+  repo_branch="$(prompt_value "Backup git branch" "${REPO_BRANCH:-main}")"
+  remote_url="$(prompt_value "Git remote URL (ssh)" "${GIT_REMOTE_URL:-}")"
+  while [ -z "$remote_url" ]; do
+    ui_warn "Git remote URL is required for automated backup pushes."
+    remote_url="$(prompt_value "Git remote URL (ssh)" "")"
+  done
+  retention_days="$(prompt_value "Log retention days" "${PA_LOG_RETENTION_DAYS:-14}")"
+
+  set_env_kv "$PA_ENV_TARGET" "REPO_DIR" "$repo_dir"
+  set_env_kv "$PA_ENV_TARGET" "REPO_BRANCH" "$repo_branch"
+  set_env_kv "$PA_ENV_TARGET" "GIT_REMOTE_URL" "$remote_url"
+  set_env_kv "$PA_ENV_TARGET" "PA_LOG_RETENTION_DAYS" "$retention_days"
+
+  ui_info "Configure notifications."
+  local notify_mode bot_token chat_id webhook_enabled webhook_url webhook_token
+  notify_mode="$(prompt_choice "Notification mode" "none" "none" "telegram" "webhook" "both")"
+
+  bot_token="${BOT_TOKEN:-}"
+  chat_id="${CHAT_ID:-}"
+  webhook_enabled="false"
+  webhook_url="${WEBHOOK_URL:-}"
+  webhook_token="${WEBHOOK_BEARER_TOKEN:-}"
+
+  if [ "$notify_mode" = "telegram" ] || [ "$notify_mode" = "both" ]; then
+    bot_token="$(prompt_value "Telegram BOT_TOKEN" "$bot_token")"
+    chat_id="$(prompt_value "Telegram CHAT_ID" "$chat_id")"
+    while [ -z "$bot_token" ] || [ -z "$chat_id" ]; do
+      ui_warn "BOT_TOKEN and CHAT_ID are required for Telegram mode."
+      bot_token="$(prompt_value "Telegram BOT_TOKEN" "$bot_token")"
+      chat_id="$(prompt_value "Telegram CHAT_ID" "$chat_id")"
+    done
+  fi
+
+  if [ "$notify_mode" = "webhook" ] || [ "$notify_mode" = "both" ]; then
+    webhook_enabled="true"
+    webhook_url="$(prompt_value "Webhook URL (https://...)" "$webhook_url")"
+    while [[ -z "$webhook_url" || ! "$webhook_url" =~ ^https?:// ]]; do
+      ui_warn "A valid webhook URL is required for webhook mode."
+      webhook_url="$(prompt_value "Webhook URL (https://...)" "$webhook_url")"
+    done
+    webhook_token="$(prompt_value "Webhook bearer token (optional)" "$webhook_token")"
+  fi
+
+  if [ "$notify_mode" = "none" ] || [ "$notify_mode" = "telegram" ]; then
+    webhook_enabled="false"
+  fi
+
+  set_env_kv "$PA_ENV_TARGET" "BOT_TOKEN" "$bot_token"
+  set_env_kv "$PA_ENV_TARGET" "CHAT_ID" "$chat_id"
+  set_env_kv "$PA_ENV_TARGET" "WEBHOOK_ENABLED" "$webhook_enabled"
+  set_env_kv "$PA_ENV_TARGET" "WEBHOOK_URL" "$webhook_url"
+  set_env_kv "$PA_ENV_TARGET" "WEBHOOK_BEARER_TOKEN" "$webhook_token"
+
+  chmod 600 "$PA_ENV_TARGET"
+  pa_load_env
+}
+
+guided_github_auth() {
+  ui_info "Checking GitHub SSH authentication."
+  while true; do
+    if validate_github_ssh; then
+      ui_ok "GitHub SSH authentication is valid."
+      return 0
+    fi
+
+    ui_warn "GitHub SSH authentication failed."
+    ui_info "Public key to add in GitHub (https://github.com/settings/keys):"
+    cat /root/.ssh/id_ed25519.pub
+    echo
+    if prompt_yes_no "Open GitHub, add the key, and retry SSH validation now?" "y"; then
+      continue
+    fi
+    return 1
+  done
+}
+
+build_preinstall_actions() {
+  PRE_ACTIONS=()
+  PRE_ACTIONS+=("Install canonical pa-* scripts into /usr/local/bin")
+  PRE_ACTIONS+=("Install canonical pa-* systemd units into /etc/systemd/system")
+  PRE_ACTIONS+=("Generate runtime version file /usr/local/bin/pa-agent-version from repo VERSION")
+  PRE_ACTIONS+=("Enable and start pa-backup-config.timer; enable pa-shutdown-proxmox.service and pa-boot-notify.service")
+  PRE_ACTIONS+=("Run post-install doctor validation")
+
+  if [ -f "$PA_ENV_LEGACY" ] && [ ! -f "$PA_ENV_TARGET" ]; then
+    PRE_ACTIONS+=("Migrate env file from $PA_ENV_LEGACY to $PA_ENV_TARGET")
+  fi
+  if detect_legacy_artifacts; then
+    PRE_ACTIONS+=("Stop and disable legacy units (backup-config*, proxmox-bootup-telegram, shutdown-proxmox)")
+    PRE_ACTIONS+=("Remove legacy managed files after successful migration")
+  fi
+  if [ ! -f /root/.ssh/id_ed25519 ]; then
+    PRE_ACTIONS+=("Generate SSH keypair /root/.ssh/id_ed25519 for Git auth")
+  fi
+}
+
+collect_preinstall_report_data() {
+  PRE_BLOCKERS=()
+  PRE_WARNINGS=()
+  PRE_NOTES=()
+  PRE_DEPS_OK=()
+  PRE_DEPS_MISSING=()
+  PRE_LEGACY_UNITS_PRESENT=()
+  PRE_CANONICAL_UNITS_PRESENT=()
+
+  local dep
+  for dep in bash git curl ssh ssh-keygen systemctl; do
+    if command -v "$dep" >/dev/null 2>&1; then
+      PRE_DEPS_OK+=("$dep")
+    else
+      PRE_DEPS_MISSING+=("$dep")
+    fi
+  done
+  if [ "${#PRE_DEPS_MISSING[@]}" -gt 0 ]; then
+    PRE_BLOCKERS+=("Missing dependencies: ${PRE_DEPS_MISSING[*]}")
+  fi
+
+  if [ -f "$PA_RUNTIME_VERSION_FILE" ]; then
+    PRE_INSTALL_STATE="canonical"
+  elif detect_legacy_artifacts; then
+    PRE_INSTALL_STATE="legacy"
+  else
+    PRE_INSTALL_STATE="none"
+  fi
+
+  PRE_CURRENT_VERSION="unknown"
+  if [ -f "$PA_RUNTIME_VERSION_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$PA_RUNTIME_VERSION_FILE" || true
+    PRE_CURRENT_VERSION="${AGENT_VERSION:-unknown}"
+  elif [ -f "$PA_RUNTIME_VERSION_LEGACY" ]; then
+    # shellcheck disable=SC1090
+    source "$PA_RUNTIME_VERSION_LEGACY" || true
+    PRE_CURRENT_VERSION="${AGENT_VERSION:-unknown}"
+  fi
+
+  PRE_ENV_SOURCE="missing"
+  if [ -f "$PA_ENV_TARGET" ]; then
+    PRE_ENV_SOURCE="$PA_ENV_TARGET"
+  elif [ -f "$PA_ENV_LEGACY" ]; then
+    PRE_ENV_SOURCE="$PA_ENV_LEGACY"
+  fi
+
+  pa_load_env
+  [ -n "${REPO_DIR:-}" ] || PRE_WARNINGS+=("REPO_DIR not set (default /root/pve-config will be used)")
+  [ -n "${REPO_BRANCH:-}" ] || PRE_WARNINGS+=("REPO_BRANCH not set (default main will be used)")
+  if [ -z "${GIT_REMOTE_URL:-}" ]; then
+    PRE_BLOCKERS+=("GIT_REMOTE_URL is not configured")
+  fi
+
+  if ! validate_github_ssh; then
+    PRE_WARNINGS+=("GitHub SSH auth is not currently valid; installer will guide key setup/retry")
+  fi
+
+  local u
+  for u in "${PA_LEGACY_UNIT_FILES[@]}"; do
+    [ -f "$PA_SYSTEMD_TARGET/$u" ] && PRE_LEGACY_UNITS_PRESENT+=("$u")
+  done
+  for u in "${PA_CANONICAL_UNIT_FILES[@]}"; do
+    [ -f "$PA_SYSTEMD_TARGET/$u" ] && PRE_CANONICAL_UNITS_PRESENT+=("$u")
+  done
+
+  PRE_NOTES+=("Env file in use for current settings: $PRE_ENV_SOURCE")
+  PRE_NOTES+=("Detected install state: $PRE_INSTALL_STATE")
+  PRE_NOTES+=("Detected installed version: $PRE_CURRENT_VERSION")
+}
+
+print_preinstall_report_text() {
+  echo "${C_BOLD}Preinstall Simulation Report${C_RESET}"
+  ui_info "This command is read-only and makes no system changes."
+  echo
+  echo "Current state:"
+  echo "  - install_state: $PRE_INSTALL_STATE"
+  echo "  - installed_version: $PRE_CURRENT_VERSION"
+  echo "  - env_source: $PRE_ENV_SOURCE"
+  echo "  - legacy_units_present: ${#PRE_LEGACY_UNITS_PRESENT[@]}"
+  echo "  - canonical_units_present: ${#PRE_CANONICAL_UNITS_PRESENT[@]}"
+  echo
+  echo "What installer will change:"
+  local item
+  for item in "${PRE_ACTIONS[@]}"; do
+    echo "  - $item"
+  done
+  echo
+  if [ "${#PRE_BLOCKERS[@]}" -gt 0 ]; then
+    echo "Blockers:"
+    for item in "${PRE_BLOCKERS[@]}"; do
+      echo "  - $item"
+    done
+    echo
+  fi
+  if [ "${#PRE_WARNINGS[@]}" -gt 0 ]; then
+    echo "Warnings:"
+    for item in "${PRE_WARNINGS[@]}"; do
+      echo "  - $item"
+    done
+    echo
+  fi
+  if [ "${#PRE_NOTES[@]}" -gt 0 ]; then
+    echo "Notes:"
+    for item in "${PRE_NOTES[@]}"; do
+      echo "  - $item"
+    done
+  fi
+}
+
+print_preinstall_report_json() {
+  local first
+  printf '{"read_only":true'
+  printf ',"install_state":"%s"' "$(pa_json_escape "$PRE_INSTALL_STATE")"
+  printf ',"installed_version":"%s"' "$(pa_json_escape "$PRE_CURRENT_VERSION")"
+  printf ',"env_source":"%s"' "$(pa_json_escape "$PRE_ENV_SOURCE")"
+  printf ',"legacy_units_present":['
+  first=1
+  local item
+  for item in "${PRE_LEGACY_UNITS_PRESENT[@]}"; do
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    printf '"%s"' "$(pa_json_escape "$item")"
+  done
+  printf ']'
+  printf ',"planned_actions":['
+  first=1
+  for item in "${PRE_ACTIONS[@]}"; do
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    printf '"%s"' "$(pa_json_escape "$item")"
+  done
+  printf ']'
+  printf ',"blockers":['
+  first=1
+  for item in "${PRE_BLOCKERS[@]}"; do
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    printf '"%s"' "$(pa_json_escape "$item")"
+  done
+  printf ']'
+  printf ',"warnings":['
+  first=1
+  for item in "${PRE_WARNINGS[@]}"; do
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    printf '"%s"' "$(pa_json_escape "$item")"
+  done
+  printf ']'
+  printf ',"notes":['
+  first=1
+  for item in "${PRE_NOTES[@]}"; do
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    printf '"%s"' "$(pa_json_escape "$item")"
+  done
+  printf ']}'
+  echo
+}
+
+cmd_preinstall_report() {
+  local json=0
+  if [ "${1:-}" = "--json" ]; then
+    json=1
+  fi
+  collect_preinstall_report_data
+  build_preinstall_actions
+  if [ "$json" -eq 1 ]; then
+    print_preinstall_report_json
+  else
+    print_preinstall_report_text
+  fi
+  [ "${#PRE_BLOCKERS[@]}" -eq 0 ]
 }
 
 configure_repo_remote_if_needed() {
@@ -355,6 +667,7 @@ remove_legacy_artifacts() {
 install_canonical_files_from_repo() {
   local f
   local bin_files=(
+    "pa-doctor.sh"
     "pa-backup-config.sh"
     "pa-boot-notify.sh"
     "pa-send-telegram.sh"
@@ -387,6 +700,7 @@ install_canonical_files_from_source_dir() {
   local srcdir="$1"
   local f
   local bin_files=(
+    "pa-doctor.sh"
     "pa-backup-config.sh"
     "pa-boot-notify.sh"
     "pa-send-telegram.sh"
@@ -500,6 +814,10 @@ cmd_install() {
   ui_info "Starting guided installation..."
 
   preflight_checks || exit 1
+  if ! prompt_yes_no "Proceed with installation changes on this node?" "n"; then
+    ui_warn "Install cancelled by user."
+    exit 0
+  fi
 
   local ts backup_dir legacy_before migrated
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -530,27 +848,10 @@ cmd_install() {
     migrate_env_file
     write_runtime_version "$(get_repo_version)"
     generate_ssh_key_if_missing
-
-    ui_info "Public SSH key (add to GitHub):"
-    cat /root/.ssh/id_ed25519.pub
-    echo
-    read -r -p "${ICON_Q} After adding the key to GitHub, press ENTER to continue..."
-
-    validate_github_ssh || rc=1
+    guided_env_setup
+    [ "$rc" -eq 0 ] && guided_github_auth || rc=1
     [ "$rc" -eq 0 ] && configure_repo_remote_if_needed
-    if [ "$rc" -eq 0 ]; then
-      pa_load_env
-      if [ -z "${GIT_REMOTE_URL:-}" ] && [ ! -f "$PA_ENV_TARGET" -o -f "$PA_ENV_TARGET" ]; then
-        ui_warn "GIT_REMOTE_URL is not set in $PA_ENV_TARGET."
-        read -r -p "${ICON_Q} Enter Git remote URL (ssh format, e.g. git@github.com:USER/REPO.git): " user_remote
-        if [ -n "$user_remote" ]; then
-          set_env_kv "$PA_ENV_TARGET" "GIT_REMOTE_URL" "$user_remote"
-          ui_ok "Saved GIT_REMOTE_URL in $PA_ENV_TARGET"
-        fi
-      fi
-      configure_repo_remote_if_needed
-      validate_git_remote_access || rc=1
-    fi
+    [ "$rc" -eq 0 ] && validate_git_remote_access || rc=1
     [ "$rc" -eq 0 ] && disable_legacy_units
     [ "$rc" -eq 0 ] && enable_canonical_services || rc=1
     if [ "$rc" -eq 0 ] && [ "$legacy_before" -eq 1 ]; then
@@ -810,6 +1111,8 @@ Usage: proxmox-agent <command> [options]
 Commands:
   install                 Install scripts, units, version file, and validate setup
   doctor [--json]         Run health checks
+  preinstall-report [--json]
+                          Read-only simulation report of current state vs planned install changes
   backup                  Run backup script manually
   notify [message]        Send Telegram test message
   upgrade [--channel stable|edge] [--target <tag>]
@@ -823,6 +1126,7 @@ main() {
   case "$cmd" in
     install) cmd_install "$@" ;;
     doctor) cmd_doctor "$@" ;;
+    preinstall-report|pa-doctor) cmd_preinstall_report "$@" ;;
     backup) cmd_backup "$@" ;;
     notify) cmd_notify "$@" ;;
     upgrade) cmd_upgrade "$@" ;;

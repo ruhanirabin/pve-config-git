@@ -38,12 +38,12 @@ ICON_ERR="[x]"
 ICON_STEP="[>]"
 ICON_Q="[?]"
 
-ui_info() { echo "${C_CYAN}${ICON_INFO}${C_RESET} $*"; }
-ui_ok() { echo "${C_GREEN}${ICON_OK}${C_RESET} $*"; }
+ui_info() { echo "${C_CYAN}${ICON_INFO}${C_RESET} $*" >&2; }
+ui_ok() { echo "${C_GREEN}${ICON_OK}${C_RESET} $*" >&2; }
 ui_warn() { echo "${C_YELLOW}${ICON_WARN}${C_RESET} $*" >&2; }
 ui_err() { echo "${C_RED}${ICON_ERR}${C_RESET} $*" >&2; }
-ui_step() { echo "${C_BLUE}${ICON_STEP}${C_RESET} $*"; }
-ui_title() { echo "${C_BOLD}$*${C_RESET}"; }
+ui_step() { echo "${C_BLUE}${ICON_STEP}${C_RESET} $*" >&2; }
+ui_title() { echo "${C_BOLD}$*${C_RESET}" >&2; }
 
 die() { ui_err "$*"; exit 1; }
 
@@ -75,17 +75,17 @@ run_with_spinner() {
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     i=$(( (i + 1) % 4 ))
-    printf '\r%s[%c]%s %s' "$C_BLUE" "${spin:$i:1}" "$C_RESET" "$label"
+    printf '\r%s[%c]%s %s' "$C_BLUE" "${spin:$i:1}" "$C_RESET" "$label" >&2
     sleep 0.1
   done
   wait "$pid"
   local rc=$?
   if [ "$rc" -eq 0 ]; then
-    printf '\r%s%s%s %s\n' "$C_GREEN" "$ICON_OK" "$C_RESET" "$label"
+    printf '\r%s%s%s %s\n' "$C_GREEN" "$ICON_OK" "$C_RESET" "$label" >&2
   else
-    printf '\r%s%s%s %s\n' "$C_RED" "$ICON_ERR" "$C_RESET" "$label"
+    printf '\r%s%s%s %s\n' "$C_RED" "$ICON_ERR" "$C_RESET" "$label" >&2
     cat /tmp/pa-installer-cmd.err >&2 || true
-    cat /tmp/pa-installer-cmd.out || true
+    cat /tmp/pa-installer-cmd.out >&2 || true
   fi
   rm -f /tmp/pa-installer-cmd.out /tmp/pa-installer-cmd.err
   return "$rc"
@@ -102,6 +102,25 @@ prompt() {
     read -r -p "${ICON_Q} ${p}: " answer
     echo "$answer"
   fi
+}
+
+prompt_yes_no() {
+  local p="$1"
+  local default="${2:-y}"
+  local answer
+  while true; do
+    if [ "$default" = "y" ]; then
+      read -r -p "${ICON_Q} ${p} [Y/n]: " answer
+      answer="${answer:-y}"
+    else
+      read -r -p "${ICON_Q} ${p} [y/N]: " answer
+      answer="${answer:-n}"
+    fi
+    case "$(echo "$answer" | tr '[:upper:]' '[:lower:]')" in
+      y|yes) return 0 ;;
+      n|no) return 1 ;;
+    esac
+  done
 }
 
 resolve_banner_file() {
@@ -125,14 +144,14 @@ resolve_banner_file() {
 print_intro() {
   resolve_banner_file || true
   if [ -n "${PA_BANNER_FILE:-}" ] && [ -f "$PA_BANNER_FILE" ]; then
-    echo
-    cat "$PA_BANNER_FILE"
-    echo
+    echo >&2
+    cat "$PA_BANNER_FILE" >&2
+    echo >&2
   fi
   ui_title "Proxmox Agent Guided Installer"
   ui_info "This installer will validate host prerequisites, detect old installs,"
   ui_info "fetch source, and run a guided proxmox-agent install."
-  echo
+  echo >&2
 }
 
 preflight() {
@@ -199,7 +218,7 @@ fetch_source() {
 }
 
 main() {
-  local total=5
+  local total=6
   local step=0
 
   print_intro
@@ -218,7 +237,15 @@ main() {
   step=$((step + 1)); progress_line "$step" "$total" "Prepare installer binary"
   [ -x "$src_root/bin/proxmox-agent" ] || chmod +x "$src_root/bin/proxmox-agent"
 
+  step=$((step + 1)); progress_line "$step" "$total" "Preinstall simulation report"
+  ui_step "Generating simulation report..."
+  (cd "$src_root" && ./bin/proxmox-agent preinstall-report) || true
+
   step=$((step + 1)); progress_line "$step" "$total" "Run guided install"
+  if ! prompt_yes_no "Proceed with installation changes on this host?" "n"; then
+    ui_warn "Installer aborted before making changes."
+    exit 0
+  fi
   ui_step "Starting proxmox-agent install..."
   (cd "$src_root" && ./bin/proxmox-agent install)
 

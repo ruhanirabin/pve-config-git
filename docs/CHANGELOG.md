@@ -1,3 +1,22 @@
+## 0.7.8
+
+- feat: add read-only preinstall simulation command (`proxmox-agent preinstall-report` / `pa-doctor`) showing current state, planned changes, blockers, and warnings.
+- improve: show simulation report in bootstrap installer flow before final confirmation.
+- improve: include JSON output option for preinstall simulation report to support automation.
+
+## 0.7.7
+
+- feat: add guided notification setup in installer (`none`, `telegram`, `webhook`, `both`) with required value prompts.
+- improve: enforce webhook URL validation and required Telegram fields during guided install.
+- feat: add Docker-based non-live smoke test script for WSL2/local validation of installer flow.
+
+## 0.7.6
+
+- fix: prevent installer source-path corruption by isolating UI/spinner output from command-substitution output.
+- improve: add mandatory confirmation gate before mutation in both bootstrap installer and `proxmox-agent install`.
+- feat: add beginner-friendly install wizard for backup repo path, branch, remote URL, and log retention setup.
+- improve: add guided GitHub SSH retry loop during install to help users complete authentication without manual debugging.
+
 ## 0.7.5
 
 - improve: beautify installer and CLI user prompts with iconized status output for clearer guidance.

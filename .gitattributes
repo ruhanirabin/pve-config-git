@@ -1,5 +1,6 @@
 *.sh text eol=lf
 install.sh text eol=lf
+tests/*.sh text eol=lf
 *.service text eol=lf
 *.timer text eol=lf
 VERSION text eol=lf

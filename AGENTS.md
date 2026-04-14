@@ -22,6 +22,7 @@ This file defines operating rules for humans and automation (agents/bots) workin
 - Supported commands:
   - `install`
   - `doctor [--json]`
+  - `preinstall-report [--json]` (read-only simulation)
   - `backup`
   - `notify [message]`
   - `upgrade [--channel stable|edge] [--target <tag>]`
