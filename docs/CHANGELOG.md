@@ -1,3 +1,8 @@
+## 0.7.22
+
+- improve: add prominent installer identity block (version/author/website) in bootstrap `install.sh` output.
+- improve: mirror the same identity block style in `proxmox-agent install` for consistent guided-install UX.
+
 ## 0.7.21
 
 - fix: skip `git pull --rebase` on backup when `origin/<branch>` does not exist yet, allowing first-time branch push.

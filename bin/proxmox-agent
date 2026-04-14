@@ -32,6 +32,24 @@ ui_ok() { pa_ui_ok "$*"; }
 ui_warn() { pa_ui_warn "$*"; }
 ui_err() { pa_ui_err "$*"; }
 
+print_cli_divider() {
+  local width=55
+  local ch="-"
+  if [ "${PA_UI_ICON_STEP:-[>]}" = "➤" ]; then
+    ch="━"
+  fi
+  echo "${PA_UI_C_BLUE}$(printf "%${width}s" "" | tr ' ' "$ch")${PA_UI_C_RESET}"
+}
+
+print_install_identity_block() {
+  print_cli_divider
+  echo "${PA_UI_C_BOLD}Proxmox Agent Guided Installer${PA_UI_C_RESET}"
+  echo "${PA_UI_C_CYAN}Version:${PA_UI_C_RESET} v$(get_repo_version)"
+  echo "${PA_UI_C_CYAN}By:${PA_UI_C_RESET} Ruhani Rabin"
+  echo "${PA_UI_C_CYAN}Website:${PA_UI_C_RESET} https://github.com/ruhanirabin/proxmox-agent"
+  print_cli_divider
+}
+
 is_test_mode() {
   pa_bool_true "${PA_TEST_MODE:-false}"
 }
@@ -1454,6 +1472,7 @@ cmd_install() {
     exit 1
   fi
 
+  print_install_identity_block
   echo "${C_BOLD}Proxmox Agent installer${C_RESET}"
   ui_info "Starting guided installation..."
   if [ "$force_resume" -eq 1 ]; then

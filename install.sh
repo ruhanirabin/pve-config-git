@@ -8,6 +8,7 @@ PA_REPO_SLUG="${PA_REPO_SLUG:-ruhanirabin/proxmox-agent}"
 PA_INSTALL_MODE="${PA_INSTALL_MODE:-auto}"
 PA_BANNER_FILE=""
 PA_CAN_COLOR=0
+PA_UTF8=0
 
 if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ] && [ "${TERM:-}" != "dumb" ]; then
   PA_CAN_COLOR=1
@@ -39,6 +40,7 @@ ICON_STEP="[>]"
 ICON_Q="[?]"
 
 if [ -t 1 ] && [ "${PA_UI_ASCII:-}" != "1" ] && locale charmap 2>/dev/null | grep -qi "utf-8"; then
+  PA_UTF8=1
   ICON_INFO="ℹ"
   ICON_OK="✔"
   ICON_WARN="⚠"
@@ -55,6 +57,32 @@ ui_step() { echo "${C_BLUE}${ICON_STEP}${C_RESET} $*" >&2; }
 ui_title() { echo "${C_BOLD}$*${C_RESET}" >&2; }
 
 die() { ui_err "$*"; exit 1; }
+
+print_divider() {
+  local width=55
+  local ch="-"
+  if [ "$PA_UTF8" -eq 1 ]; then
+    ch="━"
+  fi
+  printf '%s\n' "$(printf "%${width}s" "" | tr ' ' "$ch")" >&2
+}
+
+get_installer_version() {
+  local script_dir version_url
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  if [ -f "$script_dir/VERSION" ]; then
+    tr -d '[:space:]' < "$script_dir/VERSION"
+    return 0
+  fi
+  version_url="https://raw.githubusercontent.com/${PA_REPO_SLUG}/${PA_BRANCH}/VERSION"
+  if curl -fsSL "$version_url" >/tmp/pa-installer-version 2>/dev/null; then
+    tr -d '[:space:]' < /tmp/pa-installer-version
+    rm -f /tmp/pa-installer-version
+    return 0
+  fi
+  rm -f /tmp/pa-installer-version
+  echo "unknown"
+}
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
@@ -247,13 +275,21 @@ resolve_banner_file() {
 }
 
 print_intro() {
+  local installer_version repo_url
   resolve_banner_file || true
   if [ -n "${PA_BANNER_FILE:-}" ] && [ -f "$PA_BANNER_FILE" ]; then
     echo >&2
     cat "$PA_BANNER_FILE" >&2
     echo >&2
   fi
-  ui_title "Proxmox Agent Guided Installer"
+  installer_version="$(get_installer_version)"
+  repo_url="https://github.com/${PA_REPO_SLUG}"
+  print_divider
+  echo "${C_BOLD}Proxmox Agent Guided Installer${C_RESET}" >&2
+  echo "${C_CYAN}Version:${C_RESET} v${installer_version}" >&2
+  echo "${C_CYAN}By:${C_RESET} Ruhani Rabin" >&2
+  echo "${C_CYAN}Website:${C_RESET} ${repo_url}" >&2
+  print_divider
   ui_info "This installer will validate host prerequisites, detect old installs,"
   ui_info "fetch source, and run a guided proxmox-agent install."
   echo >&2
