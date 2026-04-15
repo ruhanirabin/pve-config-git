@@ -187,7 +187,12 @@ Important variables:
 ## Scheduled + shutdown behavior
 
 - `pa-backup-config.timer` triggers periodic backups via `pa-backup-config.service`.
-- `pa-shutdown-proxmox.service` triggers backup path during shutdown.
+- `pa-shutdown-proxmox.service` runs graceful VM/LXC/host shutdown with pre-shutdown backup.
+- Shutdown script invocation supports:
+  - systemd service execution
+  - explicit SSH/manual trigger with `--execute`
+- Duplicate shutdown runs are blocked with a lock file guard.
+- Shutdown aborts safely when host uptime is under 5 minutes (boot protection).
 - `pa-boot-notify.service` can send boot notifications.
 
 ## Upgrades

@@ -20,21 +20,43 @@ NODE_NAME="$(hostname -s 2>/dev/null || hostname)"
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LOG_DIR="/var/log/pa-shutdown"
 LOG_FILE="$LOG_DIR/shutdown_$(date '+%Y-%m-%d').log"
-pa_rotate_log_family "$LOG_FILE" "${SHUTDOWN_LOG_RETENTION_DAYS:-}"
+pa_rotate_log_family "$LOG_FILE" "${SHUTDOWN_LOG_RETENTION_DAYS:-7}"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $1" >> "$LOG_FILE"
 }
 
-# Safety guard: only run from systemd unit with explicit execute flag.
-if [ "${1:-}" != "--execute" ]; then
-  log "Abort: missing required --execute flag"
-  exit 0
+# Execution lock (prevents duplicate runs).
+LOCK_FILE="/tmp/pa-shutdown-proxmox.lock"
+if [ -f "$LOCK_FILE" ]; then
+  log "Abort: shutdown already in progress"
+  exit 1
 fi
 
-if [ -z "${INVOCATION_ID:-}" ]; then
-  log "Abort: script not invoked by systemd"
-  exit 0
+touch "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
+
+# Execution guard: allow systemd invocation, or explicit SSH-triggered --execute.
+EXECUTE_FLAG=0
+for arg in "$@"; do
+  if [ "$arg" = "--execute" ]; then
+    EXECUTE_FLAG=1
+  fi
+done
+
+if [ -n "${INVOCATION_ID:-}" ]; then
+  CALLER="systemd"
+elif [ "$EXECUTE_FLAG" -eq 1 ]; then
+  CALLER="ssh"
+else
+  CALLER="unknown"
+fi
+
+log "Invocation detected: $CALLER | Args: $*"
+
+if [ "$CALLER" = "unknown" ]; then
+  log "Abort: not systemd and missing --execute flag"
+  exit 1
 fi
 
 wait_for_shutdown() {
@@ -71,16 +93,15 @@ wait_for_shutdown() {
 }
 
 uptime_secs="$(cut -d. -f1 /proc/uptime)"
-if [ "$uptime_secs" -lt 900 ]; then
+if [ "$uptime_secs" -lt 300 ]; then
   log "Skipping shutdown: booted recently ($uptime_secs sec) agent=v${AGENT_VERSION:-unknown}"
   logger "Proxmox shutdown skipped: $NODE_NAME booted recently"
   exit 0
 fi
 
 START_TS="$(date '+%Y-%m-%d %H:%M:%S %Z')"
-log "==== $NODE_NAME shutdown started at $START_TS (agent v${AGENT_VERSION:-unknown}) ===="
-log "Invocation ID: ${INVOCATION_ID}"
-logger "Proxmox $NODE_NAME shutdown initiated"
+log "==== $NODE_NAME shutdown started at $START_TS via $CALLER (agent v${AGENT_VERSION:-unknown}) ===="
+logger "Proxmox $NODE_NAME shutdown initiated via $CALLER"
 
 /usr/local/bin/pa-send-telegram.sh "Proxmox $NODE_NAME shutdown started at <b>$START_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
 pa_send_webhook "shutdown" "started" "Shutdown sequence started" "Node $NODE_NAME started graceful shutdown." || true

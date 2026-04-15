@@ -1,3 +1,9 @@
+## 0.7.25
+
+- improve: allow shutdown automation when invoked by systemd or SSH with explicit `--execute`, with caller-aware logging for clearer operations tracing.
+- fix: prevent duplicate shutdown execution by adding a lock file guard in the shutdown script.
+- improve: reduce shutdown boot-protection window to 5 minutes and set shutdown log retention default to 7 days.
+
 ## 0.7.24
 
 - feat: add early installed-state action menu in `proxmox-agent install` with `Reinstall`, `Uninstall`, or `Exit without making changes`.
