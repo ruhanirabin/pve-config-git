@@ -26,17 +26,22 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $1" >> "$LOG_FILE"
 }
 
-# Execution lock (prevents duplicate runs).
-LOCK_FILE="/tmp/pa-shutdown-proxmox.lock"
-if [ -f "$LOCK_FILE" ]; then
-  log "Abort: shutdown already in progress"
+# ============================================================
+# Atomic Lock (flock) - Prevents duplicate execution
+# ============================================================
+
+LOCK_FILE="/var/lock/pa-shutdown.lock"
+exec 200>"$LOCK_FILE"
+
+flock -n 200 || {
+  log "Abort: another shutdown instance already running"
   exit 1
-fi
+}
 
-touch "$LOCK_FILE"
-trap 'rm -f "$LOCK_FILE"' EXIT
+# ============================================================
+# Execution guard: allow systemd invocation, or explicit SSH-triggered --execute
+# ============================================================
 
-# Execution guard: allow systemd invocation, or explicit SSH-triggered --execute.
 EXECUTE_FLAG=0
 for arg in "$@"; do
   if [ "$arg" = "--execute" ]; then
@@ -52,10 +57,19 @@ else
   CALLER="unknown"
 fi
 
-log "Invocation detected: $CALLER | Args: $*"
+log "EXECUTION START PID=$$ PPID=$PPID CALLER=$CALLER ARGS=$*"
 
 if [ "$CALLER" = "unknown" ]; then
   log "Abort: not systemd and missing --execute flag"
+  exit 1
+fi
+
+# ============================================================
+# Shutdown-state detection (critical) - Prevents re-entry during shutdown
+# ============================================================
+
+if systemctl is-system-running 2>/dev/null | grep -q "stopping"; then
+  log "Abort: system already in stopping state"
   exit 1
 fi
 

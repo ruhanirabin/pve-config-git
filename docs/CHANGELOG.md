@@ -1,3 +1,10 @@
+## 0.7.26
+
+- fix: replace non-atomic lockfile with `flock` atomic lock on `/var/lock/pa-shutdown.lock` to prevent race conditions.
+- feat: add shutdown-state detection to prevent re-entry during system shutdown phase (detects `systemctl is-system-running` stopping state).
+- improve: add PID/PPID execution tracing for debugging double-trigger scenarios (HA + systemd overlap).
+- improve: move lock file from `/tmp/` to `/var/lock/` for proper system-standard persistence.
+
 ## 0.7.25
 
 - improve: allow shutdown automation when invoked by systemd or SSH with explicit `--execute`, with caller-aware logging for clearer operations tracing.
