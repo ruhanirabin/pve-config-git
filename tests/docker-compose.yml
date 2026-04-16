@@ -1,0 +1,67 @@
+version: '3.8'
+
+# Proxmox Agent Test Environment
+# Uses Proxmox VE container for realistic testing
+
+services:
+  pve-test:
+    image: ghcr.io/longqt-sea/proxmox-ve
+    container_name: pa-test-pve
+    hostname: pve-test
+    stdin_open: true
+    tty: true
+    # Don't restart on failure - we want clean test runs
+    restart: "no"
+    ports:
+      - "2222:22"       # SSH access for debugging
+      - "8006:8006"     # Proxmox Web UI (optional)
+    environment:
+      - PASSWORD=testpass123
+      # Enable test mode for automated runs
+      - PA_TEST_MODE=true
+    volumes:
+      # Mount the agent code for testing
+      - ../:/proxmox-agent:ro
+      # Test volumes
+      - pa-test-logs:/var/log
+      - pa-test-data:/root
+    cap_add:
+      - ALL
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+      - systempaths:unconfined
+    # Health check to ensure PVE is ready
+    healthcheck:
+      test: ["CMD", "systemctl", "is-active", "pveproxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    # Entry point modification to allow testing
+    entrypoint: ["/sbin/init"]
+
+  # Git server for backup target testing
+  git-server:
+    image: rockstorm/git-server:latest
+    container_name: pa-test-git
+    hostname: git-test
+    environment:
+      - GIT_USER=git
+      - GIT_PASSWORD=gittest123
+    volumes:
+      - pa-git-repos:/srv/git
+    # Create a test repo on startup
+    command: >
+      sh -c "
+        mkdir -p /srv/git/pve-config.git &&
+        cd /srv/git/pve-config.git &&
+        git init --bare &&
+        echo 'Test PVE backup repo' > description &&
+        /entrypoint.sh
+      "
+
+volumes:
+  pa-test-logs:
+  pa-test-data:
+  pa-git-repos:

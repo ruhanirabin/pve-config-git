@@ -232,7 +232,26 @@ PA_TEST_MODE=true ./bin/proxmox-agent preinstall-report
 PA_TEST_MODE=true ./bin/proxmox-agent doctor
 ```
 
-Smoke test helper:
+### Automated Test Suite
+
+For comprehensive testing with a real Proxmox VE environment:
+
+```bash
+cd tests
+./run-tests.sh
+```
+
+This uses Docker with the `ghcr.io/longqt-sea/proxmox-ve` image to test:
+- Doctor/preinstall-report functionality
+- Installation flow
+- Backup script execution
+- Shutdown script hardening (flock, shutdown-state detection)
+
+See `tests/README.md` for detailed usage.
+
+### Quick smoke test (Ubuntu)
+
+For a lightweight installer flow check on generic Ubuntu:
 
 ```bash
 tests/docker-guided-smoke.sh
