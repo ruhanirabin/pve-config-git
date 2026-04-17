@@ -135,9 +135,7 @@ If you have your own notification system (Discord, Slack, n8n, etc.), prepare:
 
 ### One-liner bootstrap (guided)
 
-**Remember:** Run this in the Proxmox VE shell, not inside a VM.
-
-**Note:** The bootstrap URL is now active. The repository has been renamed to `ruhanirabin/pve-config-git`.
+**Remember:** Run this in the Proxmox VE shell, not inside a VM/LXC.
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/ruhanirabin/pve-config-git/main/install.sh)"
