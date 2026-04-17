@@ -1,26 +1,26 @@
 #!/bin/bash
 
 # ============================================================
-# pa-shutdown-proxmox.sh
-# Agent Version: runtime sourced from pa-agent-version
+# pcg-shutdown-proxmox.sh
+# Agent Version: runtime sourced from pcg-agent-version
 # ============================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pa-agent-lib.sh}"
-[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pa-agent-lib.sh"
+LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pcg-agent-lib.sh}"
+[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pcg-agent-lib.sh"
 # shellcheck disable=SC1090
 source "$LIB_FILE"
 
-pa_load_version
-pa_load_env
+pcg_load_version
+pcg_load_env
 
 NODE_NAME="$(hostname -s 2>/dev/null || hostname)"
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-LOG_DIR="/var/log/pa-shutdown"
+LOG_DIR="/var/log/pcg-shutdown"
 LOG_FILE="$LOG_DIR/shutdown_$(date '+%Y-%m-%d').log"
-pa_rotate_log_family "$LOG_FILE" "${SHUTDOWN_LOG_RETENTION_DAYS:-7}"
+pcg_rotate_log_family "$LOG_FILE" "${SHUTDOWN_LOG_RETENTION_DAYS:-7}"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $1" >> "$LOG_FILE"
@@ -30,7 +30,7 @@ log() {
 # Atomic Lock (flock) - Prevents duplicate execution
 # ============================================================
 
-LOCK_FILE="/var/lock/pa-shutdown.lock"
+LOCK_FILE="/var/lock/pcg-shutdown.lock"
 exec 200>"$LOCK_FILE"
 
 flock -n 200 || {
@@ -117,10 +117,10 @@ START_TS="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 log "==== $NODE_NAME shutdown started at $START_TS via $CALLER (agent v${AGENT_VERSION:-unknown}) ===="
 logger "Proxmox $NODE_NAME shutdown initiated via $CALLER"
 
-/usr/local/bin/pa-send-telegram.sh "Proxmox $NODE_NAME shutdown started at <b>$START_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
-pa_send_webhook "shutdown" "started" "Shutdown sequence started" "Node $NODE_NAME started graceful shutdown." || true
+/usr/local/bin/pcg-send-telegram.sh "Proxmox $NODE_NAME shutdown started at <b>$START_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
+pcg_send_webhook "shutdown" "started" "Shutdown sequence started" "Node $NODE_NAME started graceful shutdown." || true
 
-if /usr/local/bin/pa-backup-config.sh; then
+if /usr/local/bin/pcg-backup-config.sh; then
   log "Pre-shutdown backup completed."
 else
   log "WARNING pre-shutdown backup failed; continuing shutdown."
@@ -153,8 +153,8 @@ done
 FINAL_TS="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 log "Sending final shutdown notification"
 
-/usr/local/bin/pa-send-telegram.sh "Proxmox host <b>$NODE_NAME</b> shutting down at <b>$FINAL_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
-pa_send_webhook "shutdown" "success" "Shutdown sequence complete" "Node $NODE_NAME is shutting down now." || true
+/usr/local/bin/pcg-send-telegram.sh "Proxmox host <b>$NODE_NAME</b> shutting down at <b>$FINAL_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
+pcg_send_webhook "shutdown" "success" "Shutdown sequence complete" "Node $NODE_NAME is shutting down now." || true
 
 sleep 3
 

@@ -2,22 +2,22 @@
 
 set -o pipefail
 
-PA_ENV_FILE_DEFAULT="/root/.pa-agent.env"
-PA_ENV_FILE_LEGACY="/root/.backup-config.env"
-PA_VERSION_FILE="/usr/local/bin/pa-agent-version"
-PA_VERSION_FILE_LEGACY="/usr/local/bin/proxmox-agent-version"
+PCG_ENV_FILE_DEFAULT="/root/.pcg-agent.env"
+PCG_ENV_FILE_LEGACY="/root/.backup-config.env"
+PCG_VERSION_FILE="/usr/local/bin/pcg-agent-version"
+PCG_VERSION_FILE_LEGACY="/usr/local/bin/proxmox-agent-version"
 
-pa_now_utc() {
+pcg_now_utc() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
-pa_bool_true() {
+pcg_bool_true() {
   local v
   v="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')"
   [[ "$v" == "1" || "$v" == "true" || "$v" == "yes" || "$v" == "on" ]]
 }
 
-pa_json_escape() {
+pcg_json_escape() {
   local s="${1:-}"
   s="${s//\\/\\\\}"
   s="${s//\"/\\\"}"
@@ -27,21 +27,21 @@ pa_json_escape() {
   printf '%s' "$s"
 }
 
-pa_ui_init() {
-  PA_UI_C_RESET=""
-  PA_UI_C_BOLD=""
-  PA_UI_C_CYAN=""
-  PA_UI_C_GREEN=""
-  PA_UI_C_YELLOW=""
-  PA_UI_C_RED=""
-  PA_UI_C_BLUE=""
+pcg_ui_init() {
+  PCG_UI_C_RESET=""
+  PCG_UI_C_BOLD=""
+  PCG_UI_C_CYAN=""
+  PCG_UI_C_GREEN=""
+  PCG_UI_C_YELLOW=""
+  PCG_UI_C_RED=""
+  PCG_UI_C_BLUE=""
 
-  PA_UI_ICON_INFO="[i]"
-  PA_UI_ICON_OK="[+]"
-  PA_UI_ICON_WARN="[!]"
-  PA_UI_ICON_ERR="[x]"
-  PA_UI_ICON_STEP="[>]"
-  PA_UI_ICON_Q="[?]"
+  PCG_UI_ICON_INFO="[i]"
+  PCG_UI_ICON_OK="[+]"
+  PCG_UI_ICON_WARN="[!]"
+  PCG_UI_ICON_ERR="[x]"
+  PCG_UI_ICON_STEP="[>]"
+  PCG_UI_ICON_Q="[?]"
 
   local can_color=0
   if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ] && [ "${TERM:-}" != "dumb" ]; then
@@ -49,49 +49,49 @@ pa_ui_init() {
   fi
 
   if [ "$can_color" -eq 1 ]; then
-    PA_UI_C_RESET=$'\033[0m'
-    PA_UI_C_BOLD=$'\033[1m'
-    PA_UI_C_CYAN=$'\033[36m'
-    PA_UI_C_GREEN=$'\033[32m'
-    PA_UI_C_YELLOW=$'\033[33m'
-    PA_UI_C_RED=$'\033[31m'
-    PA_UI_C_BLUE=$'\033[34m'
+    PCG_UI_C_RESET=$'\033[0m'
+    PCG_UI_C_BOLD=$'\033[1m'
+    PCG_UI_C_CYAN=$'\033[36m'
+    PCG_UI_C_GREEN=$'\033[32m'
+    PCG_UI_C_YELLOW=$'\033[33m'
+    PCG_UI_C_RED=$'\033[31m'
+    PCG_UI_C_BLUE=$'\033[34m'
   fi
 
-  if [ -t 1 ] && [ "${PA_UI_ASCII:-}" != "1" ] && locale charmap 2>/dev/null | grep -qi "utf-8"; then
-    PA_UI_ICON_INFO="ℹ"
-    PA_UI_ICON_OK="✔"
-    PA_UI_ICON_WARN="⚠"
-    PA_UI_ICON_ERR="✖"
-    PA_UI_ICON_STEP="➤"
-    PA_UI_ICON_Q="❯"
+  if [ -t 1 ] && [ "${PCG_UI_ASCII:-}" != "1" ] && locale charmap 2>/dev/null | grep -qi "utf-8"; then
+    PCG_UI_ICON_INFO="ℹ"
+    PCG_UI_ICON_OK="✔"
+    PCG_UI_ICON_WARN="⚠"
+    PCG_UI_ICON_ERR="✖"
+    PCG_UI_ICON_STEP="➤"
+    PCG_UI_ICON_Q="❯"
   fi
 }
 
-pa_ui_info() { echo "${PA_UI_C_CYAN}${PA_UI_ICON_INFO}${PA_UI_C_RESET} $*"; }
-pa_ui_ok() { echo "${PA_UI_C_GREEN}${PA_UI_ICON_OK}${PA_UI_C_RESET} $*"; }
-pa_ui_warn() { echo "${PA_UI_C_YELLOW}${PA_UI_ICON_WARN}${PA_UI_C_RESET} $*"; }
-pa_ui_err() { echo "${PA_UI_C_RED}${PA_UI_ICON_ERR}${PA_UI_C_RESET} $*" >&2; }
-pa_ui_step() { echo "${PA_UI_C_BLUE}${PA_UI_ICON_STEP}${PA_UI_C_RESET} $*"; }
-pa_ui_title() { echo "${PA_UI_C_BOLD}$*${PA_UI_C_RESET}"; }
+pcg_ui_info() { echo "${PCG_UI_C_CYAN}${PCG_UI_ICON_INFO}${PCG_UI_C_RESET} $*"; }
+pcg_ui_ok() { echo "${PCG_UI_C_GREEN}${PCG_UI_ICON_OK}${PCG_UI_C_RESET} $*"; }
+pcg_ui_warn() { echo "${PCG_UI_C_YELLOW}${PCG_UI_ICON_WARN}${PCG_UI_C_RESET} $*"; }
+pcg_ui_err() { echo "${PCG_UI_C_RED}${PCG_UI_ICON_ERR}${PCG_UI_C_RESET} $*" >&2; }
+pcg_ui_step() { echo "${PCG_UI_C_BLUE}${PCG_UI_ICON_STEP}${PCG_UI_C_RESET} $*"; }
+pcg_ui_title() { echo "${PCG_UI_C_BOLD}$*${PCG_UI_C_RESET}"; }
 
-pa_load_version() {
+pcg_load_version() {
   AGENT_VERSION="unknown"
-  if [ -f "$PA_VERSION_FILE" ]; then
+  if [ -f "$PCG_VERSION_FILE" ]; then
     # shellcheck disable=SC1090
-    source "$PA_VERSION_FILE" || true
+    source "$PCG_VERSION_FILE" || true
     return 0
   fi
-  if [ -f "$PA_VERSION_FILE_LEGACY" ]; then
+  if [ -f "$PCG_VERSION_FILE_LEGACY" ]; then
     # shellcheck disable=SC1090
-    source "$PA_VERSION_FILE_LEGACY" || true
+    source "$PCG_VERSION_FILE_LEGACY" || true
   fi
 }
 
-pa_load_env() {
+pcg_load_env() {
   local source_rc
   local source_err_file
-  pa_source_env_file() {
+  pcg_source_env_file() {
     local file="$1"
     [ -f "$file" ] || return 0
     source_err_file="$(mktemp)"
@@ -110,23 +110,23 @@ pa_load_env() {
   }
 
   if [ -n "${ENV_FILE:-}" ]; then
-    pa_source_env_file "$ENV_FILE"
+    pcg_source_env_file "$ENV_FILE"
     return 0
   fi
 
-  if [ -f "$PA_ENV_FILE_DEFAULT" ]; then
-    ENV_FILE="$PA_ENV_FILE_DEFAULT"
-  elif [ -f "$PA_ENV_FILE_LEGACY" ]; then
-    ENV_FILE="$PA_ENV_FILE_LEGACY"
+  if [ -f "$PCG_ENV_FILE_DEFAULT" ]; then
+    ENV_FILE="$PCG_ENV_FILE_DEFAULT"
+  elif [ -f "$PCG_ENV_FILE_LEGACY" ]; then
+    ENV_FILE="$PCG_ENV_FILE_LEGACY"
   else
-    ENV_FILE="$PA_ENV_FILE_DEFAULT"
+    ENV_FILE="$PCG_ENV_FILE_DEFAULT"
   fi
 
-  pa_source_env_file "$ENV_FILE"
+  pcg_source_env_file "$ENV_FILE"
 }
 
-pa_log_retention_days() {
-  local raw="${1:-${PA_LOG_RETENTION_DAYS:-14}}"
+pcg_log_retention_days() {
+  local raw="${1:-${PCG_LOG_RETENTION_DAYS:-14}}"
   if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -ge 1 ]; then
     echo "$raw"
   else
@@ -134,13 +134,13 @@ pa_log_retention_days() {
   fi
 }
 
-pa_rotate_log_family() {
+pcg_rotate_log_family() {
   local log_file="$1"
   local retention_input="${2:-}"
   local retention_days
   local log_dir log_base
 
-  retention_days="$(pa_log_retention_days "$retention_input")"
+  retention_days="$(pcg_log_retention_days "$retention_input")"
   log_dir="$(dirname "$log_file")"
   log_base="$(basename "$log_file")"
 
@@ -148,7 +148,7 @@ pa_rotate_log_family() {
   find "$log_dir" -type f -name "${log_base}*" -mtime +"$retention_days" -exec rm -f {} \; 2>/dev/null || true
 }
 
-pa_event_enabled() {
+pcg_event_enabled() {
   local event="${1:-}"
   local configured list
   configured="${WEBHOOK_EVENTS:-install,doctor,backup,shutdown}"
@@ -162,14 +162,14 @@ pa_event_enabled() {
   return 1
 }
 
-pa_send_webhook() {
+pcg_send_webhook() {
   local event status summary details node ts enabled url token timeout retries payload try delay auth_header
   event="${1:-}"
   status="${2:-unknown}"
   summary="${3:-}"
   details="${4:-}"
   node="${5:-$(hostname -s 2>/dev/null || hostname)}"
-  ts="$(pa_now_utc)"
+  ts="$(pcg_now_utc)"
 
   enabled="${WEBHOOK_ENABLED:-false}"
   url="${WEBHOOK_URL:-}"
@@ -177,13 +177,13 @@ pa_send_webhook() {
   timeout="${WEBHOOK_TIMEOUT_SECONDS:-10}"
   retries="${WEBHOOK_MAX_RETRIES:-3}"
 
-  pa_bool_true "$enabled" || return 0
+  pcg_bool_true "$enabled" || return 0
   [ -n "$url" ] || return 0
-  pa_event_enabled "$event" || return 0
+  pcg_event_enabled "$event" || return 0
 
   payload=$(
     cat <<EOF
-{"schema_version":"1","event_type":"$(pa_json_escape "$event")","timestamp":"$ts","node":"$(pa_json_escape "$node")","status":"$(pa_json_escape "$status")","summary":"$(pa_json_escape "$summary")","details":"$(pa_json_escape "$details")","agent_version":"$(pa_json_escape "${AGENT_VERSION:-unknown}")"}
+{"schema_version":"1","event_type":"$(pcg_json_escape "$event")","timestamp":"$ts","node":"$(pcg_json_escape "$node")","status":"$(pcg_json_escape "$status")","summary":"$(pcg_json_escape "$summary")","details":"$(pcg_json_escape "$details")","agent_version":"$(pcg_json_escape "${AGENT_VERSION:-unknown}")"}
 EOF
   )
 

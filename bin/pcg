@@ -5,56 +5,56 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION_FILE="$REPO_ROOT/VERSION"
-LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pa-agent-lib.sh}"
-[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pa-agent-lib.sh"
+LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pcg-agent-lib.sh}"
+[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pcg-agent-lib.sh"
 # shellcheck disable=SC1090
 source "$LIB_FILE"
 
-PA_BIN_TARGET="/usr/local/bin"
-PA_SYSTEMD_TARGET="/etc/systemd/system"
-PA_ENV_TARGET="/root/.pa-agent.env"
-PA_ENV_DRAFT="/root/.pa-agent-install-draft.env"
-PA_ENV_LEGACY="/root/.backup-config.env"
-PA_ENV_EXAMPLE_SOURCE="$REPO_ROOT/env/pa-agent.env.example"
-PA_RUNTIME_VERSION_FILE="$PA_BIN_TARGET/pa-agent-version"
-PA_RUNTIME_VERSION_LEGACY="$PA_BIN_TARGET/proxmox-agent-version"
-PA_BACKUP_DIR_BASE="/root/proxmox-agent-backups"
-PA_UPGRADE_LOG="/var/log/proxmox-agent-upgrade.log"
-PA_SSH_PRIVATE_KEY="/root/.ssh/id_ed25519"
-PA_SSH_PUBLIC_KEY="/root/.ssh/id_ed25519.pub"
-pa_ui_init
-C_RESET="${PA_UI_C_RESET}"
-C_BOLD="${PA_UI_C_BOLD}"
-ICON_Q="${PA_UI_ICON_Q}"
+PCG_BIN_TARGET="/usr/local/bin"
+PCG_SYSTEMD_TARGET="/etc/systemd/system"
+PCG_ENV_TARGET="/root/.pcg-agent.env"
+PCG_ENV_DRAFT="/root/.pcg-agent-install-draft.env"
+PCG_ENV_LEGACY="/root/.backup-config.env"
+PCG_ENV_EXAMPLE_SOURCE="$REPO_ROOT/env/pcg-agent.env.example"
+PCG_RUNTIME_VERSION_FILE="$PCG_BIN_TARGET/pcg-agent-version"
+PCG_RUNTIME_VERSION_LEGACY="$PCG_BIN_TARGET/proxmox-agent-version"
+PCG_BACKUP_DIR_BASE="/root/pcg-backups"
+PCG_UPGRADE_LOG="/var/log/pcg-upgrade.log"
+PCG_SSH_PRIVATE_KEY="/root/.ssh/id_ed25519"
+PCG_SSH_PUBLIC_KEY="/root/.ssh/id_ed25519.pub"
+pcg_ui_init
+C_RESET="${PCG_UI_C_RESET}"
+C_BOLD="${PCG_UI_C_BOLD}"
+ICON_Q="${PCG_UI_ICON_Q}"
 
-ui_info() { pa_ui_info "$*"; }
-ui_ok() { pa_ui_ok "$*"; }
-ui_warn() { pa_ui_warn "$*"; }
-ui_err() { pa_ui_err "$*"; }
+ui_info() { pcg_ui_info "$*"; }
+ui_ok() { pcg_ui_ok "$*"; }
+ui_warn() { pcg_ui_warn "$*"; }
+ui_err() { pcg_ui_err "$*"; }
 
 print_cli_divider() {
   local width=55
   local ch="-"
-  if [ "${PA_UI_ICON_STEP:-[>]}" = "➤" ]; then
+  if [ "${PCG_UI_ICON_STEP:-[>]}" = "➤" ]; then
     ch="━"
   fi
-  echo "${PA_UI_C_BLUE}$(printf "%${width}s" "" | tr ' ' "$ch")${PA_UI_C_RESET}"
+  echo "${PCG_UI_C_BLUE}$(printf "%${width}s" "" | tr ' ' "$ch")${PCG_UI_C_RESET}"
 }
 
 print_install_identity_block() {
   print_cli_divider
-  echo "${PA_UI_C_BOLD}Proxmox Agent Guided Installer${PA_UI_C_RESET}"
-  echo "${PA_UI_C_CYAN}Version:${PA_UI_C_RESET} v$(get_repo_version)"
-  echo "${PA_UI_C_CYAN}By:${PA_UI_C_RESET} Ruhani Rabin"
-  echo "${PA_UI_C_CYAN}Website:${PA_UI_C_RESET} https://github.com/ruhanirabin/proxmox-agent"
+  echo "${PCG_UI_C_BOLD}Proxmox Cluster Guardian Installer${PCG_UI_C_RESET}"
+  echo "${PCG_UI_C_CYAN}Version:${PCG_UI_C_RESET} v$(get_repo_version)"
+  echo "${PCG_UI_C_CYAN}By:${PCG_UI_C_RESET} Ruhani Rabin"
+  echo "${PCG_UI_C_CYAN}Website:${PCG_UI_C_RESET} https://github.com/ruhanirabin/proxmox-agent"
   print_cli_divider
 }
 
 is_test_mode() {
-  pa_bool_true "${PA_TEST_MODE:-false}"
+  pcg_bool_true "${PCG_TEST_MODE:-false}"
 }
 
-pa_systemctl() {
+pcg_systemctl() {
   if is_test_mode; then
     ui_warn "[test mode] skipped: systemctl $*"
     return 0
@@ -62,26 +62,35 @@ pa_systemctl() {
   systemctl "$@"
 }
 
-PA_CANONICAL_BIN_FILES=(
-  "pa-doctor.sh"
-  "pa-backup-config.sh"
-  "pa-boot-notify.sh"
-  "pa-send-telegram.sh"
-  "pa-send-webhook.sh"
-  "pa-shutdown-proxmox.sh"
-  "pa-agent-lib.sh"
-  "proxmox-agent"
-  "pa-agent-version"
+PCG_CANONICAL_BIN_FILES=(
+  "pcg-doctor.sh"
+  "pcg-backup-config.sh"
+  "pcg-boot-notify.sh"
+  "pcg-send-telegram.sh"
+  "pcg-send-webhook.sh"
+  "pcg-shutdown-proxmox.sh"
+  "pcg-agent-lib.sh"
+  "pcg"
+  "pcg-agent-version"
 )
 
-PA_CANONICAL_UNIT_FILES=(
+PCG_CANONICAL_UNIT_FILES=(
   "pa-backup-config.service"
   "pa-backup-config.timer"
   "pa-boot-notify.service"
   "pa-shutdown-proxmox.service"
 )
 
-PA_LEGACY_BIN_FILES=(
+PCG_LEGACY_BIN_FILES=(
+  "proxmox-agent"
+  "pa-agent-lib.sh"
+  "pa-backup-config.sh"
+  "pa-boot-notify.sh"
+  "pa-doctor.sh"
+  "pa-send-telegram.sh"
+  "pa-send-webhook.sh"
+  "pa-shutdown-proxmox.sh"
+  "pa-agent-version"
   "backup-config.sh"
   "proxmox-boot-notify.sh"
   "send_telegram.sh"
@@ -91,7 +100,7 @@ PA_LEGACY_BIN_FILES=(
   "proxmox-agent-version"
 )
 
-PA_LEGACY_UNIT_FILES=(
+PCG_LEGACY_UNIT_FILES=(
   "backup-config.service"
   "backup-config.timer"
   "proxmox-bootup-telegram.service"
@@ -394,46 +403,46 @@ require_root() {
 write_runtime_version() {
   local v="$1"
   # Runtime version file is generated from repo VERSION during install/upgrade.
-  cat > "$PA_RUNTIME_VERSION_FILE" <<EOF
+  cat > "$PCG_RUNTIME_VERSION_FILE" <<EOF
 #!/bin/bash
 AGENT_VERSION="$v"
 export AGENT_VERSION
 EOF
-  chmod 755 "$PA_RUNTIME_VERSION_FILE"
+  chmod 755 "$PCG_RUNTIME_VERSION_FILE"
 }
 
 generate_ssh_key_if_missing() {
-  if [ -f "$PA_SSH_PRIVATE_KEY" ] && [ -f "$PA_SSH_PUBLIC_KEY" ]; then
+  if [ -f "$PCG_SSH_PRIVATE_KEY" ] && [ -f "$PCG_SSH_PUBLIC_KEY" ]; then
     ui_ok "Using existing SSH keypair."
-    ui_info "Private key: $PA_SSH_PRIVATE_KEY"
-    ui_info "Public key:  $PA_SSH_PUBLIC_KEY"
+    ui_info "Private key: $PCG_SSH_PRIVATE_KEY"
+    ui_info "Public key:  $PCG_SSH_PUBLIC_KEY"
     return 0
   fi
 
   mkdir -p /root/.ssh
   chmod 700 /root/.ssh
 
-  if [ -f "$PA_SSH_PRIVATE_KEY" ] && [ ! -f "$PA_SSH_PUBLIC_KEY" ]; then
+  if [ -f "$PCG_SSH_PRIVATE_KEY" ] && [ ! -f "$PCG_SSH_PUBLIC_KEY" ]; then
     ui_warn "Private key exists but public key is missing. Regenerating public key..."
-    ssh-keygen -y -f "$PA_SSH_PRIVATE_KEY" > "$PA_SSH_PUBLIC_KEY"
-    chmod 644 "$PA_SSH_PUBLIC_KEY"
+    ssh-keygen -y -f "$PCG_SSH_PRIVATE_KEY" > "$PCG_SSH_PUBLIC_KEY"
+    chmod 644 "$PCG_SSH_PUBLIC_KEY"
     ui_ok "Generated public key from existing private key."
-    ui_info "Private key: $PA_SSH_PRIVATE_KEY"
-    ui_info "Public key:  $PA_SSH_PUBLIC_KEY"
+    ui_info "Private key: $PCG_SSH_PRIVATE_KEY"
+    ui_info "Public key:  $PCG_SSH_PUBLIC_KEY"
     return 0
   fi
 
-  if [ ! -f "$PA_SSH_PRIVATE_KEY" ]; then
-    ui_warn "No SSH key found at $PA_SSH_PRIVATE_KEY. Generating a new SSH keypair..."
+  if [ ! -f "$PCG_SSH_PRIVATE_KEY" ]; then
+    ui_warn "No SSH key found at $PCG_SSH_PRIVATE_KEY. Generating a new SSH keypair..."
     mkdir -p /root/.ssh
     chmod 700 /root/.ssh
     ui_info "Generating SSH keypair..."
-    ssh-keygen -t ed25519 -C "proxmox-agent" -f "$PA_SSH_PRIVATE_KEY" -N ""
-    chmod 600 "$PA_SSH_PRIVATE_KEY"
-    chmod 644 "$PA_SSH_PUBLIC_KEY"
+    ssh-keygen -t ed25519 -C "proxmox-agent" -f "$PCG_SSH_PRIVATE_KEY" -N ""
+    chmod 600 "$PCG_SSH_PRIVATE_KEY"
+    chmod 644 "$PCG_SSH_PUBLIC_KEY"
     ui_ok "Created SSH keypair."
-    ui_info "Private key: $PA_SSH_PRIVATE_KEY"
-    ui_info "Public key:  $PA_SSH_PUBLIC_KEY"
+    ui_info "Private key: $PCG_SSH_PRIVATE_KEY"
+    ui_info "Public key:  $PCG_SSH_PUBLIC_KEY"
   fi
   return 0
 }
@@ -483,11 +492,11 @@ save_install_draft() {
   local webhook_url="${10}"
   local webhook_token="${11}"
 
-  cat > "$PA_ENV_DRAFT" <<EOF
+  cat > "$PCG_ENV_DRAFT" <<EOF
 DRAFT_REPO_DIR=$(printf "%q" "$repo_dir")
 DRAFT_REPO_BRANCH=$(printf "%q" "$repo_branch")
 DRAFT_GIT_REMOTE_URL=$(printf "%q" "$remote_url")
-DRAFT_PA_LOG_RETENTION_DAYS=$(printf "%q" "$retention_days")
+DRAFT_PCG_LOG_RETENTION_DAYS=$(printf "%q" "$retention_days")
 DRAFT_GIT_COMMIT_NAME=$(printf "%q" "$git_commit_name")
 DRAFT_GIT_COMMIT_EMAIL=$(printf "%q" "$git_commit_email")
 DRAFT_NOTIFY_MODE=$(printf "%q" "$notify_mode")
@@ -496,20 +505,20 @@ DRAFT_CHAT_ID=$(printf "%q" "$chat_id")
 DRAFT_WEBHOOK_URL=$(printf "%q" "$webhook_url")
 DRAFT_WEBHOOK_BEARER_TOKEN=$(printf "%q" "$webhook_token")
 EOF
-  chmod 600 "$PA_ENV_DRAFT"
+  chmod 600 "$PCG_ENV_DRAFT"
 }
 
 load_install_draft() {
-  if [ -f "$PA_ENV_DRAFT" ]; then
+  if [ -f "$PCG_ENV_DRAFT" ]; then
     # shellcheck disable=SC1090
-    source "$PA_ENV_DRAFT"
+    source "$PCG_ENV_DRAFT"
     return 0
   fi
   return 1
 }
 
 clear_install_draft() {
-  rm -f "$PA_ENV_DRAFT"
+  rm -f "$PCG_ENV_DRAFT"
 }
 
 validate_guided_inputs() {
@@ -614,7 +623,7 @@ print_guided_input_summary() {
   echo "  - REPO_BRANCH: $repo_branch"
   echo "  - GIT_REMOTE_URL: $remote_url"
   echo "  - Remote auth mode: $remote_mode"
-  echo "  - PA_LOG_RETENTION_DAYS: $retention_days"
+  echo "  - PCG_LOG_RETENTION_DAYS: $retention_days"
   echo "  - GIT_COMMIT_NAME: $git_commit_name"
   echo "  - GIT_COMMIT_EMAIL: $git_commit_email"
   echo "  - Notification mode: $notify_mode"
@@ -643,22 +652,22 @@ print_repo_url_guidance() {
 }
 
 show_public_key_for_github() {
-  if [ -f "$PA_SSH_PUBLIC_KEY" ]; then
+  if [ -f "$PCG_SSH_PUBLIC_KEY" ]; then
     ui_info "GitHub SSH key setup instructions:"
     echo "  1) Open: https://github.com/settings/keys"
     echo "  2) Click: New SSH key"
     echo "  3) Paste the full OpenSSH public key shown below"
     echo "  4) Save, then return here to continue"
     echo
-    ui_info "Private key location: $PA_SSH_PRIVATE_KEY"
-    ui_info "Public key location:  $PA_SSH_PUBLIC_KEY"
+    ui_info "Private key location: $PCG_SSH_PRIVATE_KEY"
+    ui_info "Public key location:  $PCG_SSH_PUBLIC_KEY"
     ui_info "OpenSSH public key content:"
     echo "----- BEGIN OPENSSH PUBLIC KEY -----"
-    cat "$PA_SSH_PUBLIC_KEY"
+    cat "$PCG_SSH_PUBLIC_KEY"
     echo "----- END OPENSSH PUBLIC KEY -----"
     echo
   else
-    ui_warn "Public key file not found at $PA_SSH_PUBLIC_KEY"
+    ui_warn "Public key file not found at $PCG_SSH_PUBLIC_KEY"
     return 1
   fi
   return 0
@@ -677,8 +686,8 @@ validate_github_ssh() {
 
 guided_env_setup() {
   local force_resume="${1:-0}"
-  [ -f "$PA_ENV_TARGET" ] || install -m 600 "$PA_ENV_EXAMPLE_SOURCE" "$PA_ENV_TARGET"
-  pa_load_env
+  [ -f "$PCG_ENV_TARGET" ] || install -m 600 "$PCG_ENV_EXAMPLE_SOURCE" "$PCG_ENV_TARGET"
+  pcg_load_env
 
   local repo_dir repo_branch remote_url retention_days
   local git_commit_name git_commit_email
@@ -687,7 +696,7 @@ guided_env_setup() {
   repo_dir="${REPO_DIR:-/root/pve-config}"
   repo_branch="${REPO_BRANCH:-main}"
   remote_url="${GIT_REMOTE_URL:-}"
-  retention_days="${PA_LOG_RETENTION_DAYS:-14}"
+  retention_days="${PCG_LOG_RETENTION_DAYS:-14}"
   git_commit_name="${GIT_COMMIT_NAME:-}"
   git_commit_email="${GIT_COMMIT_EMAIL:-}"
   notify_mode="telegram"
@@ -697,14 +706,14 @@ guided_env_setup() {
   webhook_url="${WEBHOOK_URL:-}"
   webhook_token="${WEBHOOK_BEARER_TOKEN:-}"
 
-  if [ -f "$PA_ENV_DRAFT" ]; then
+  if [ -f "$PCG_ENV_DRAFT" ]; then
     ui_info "Saved installer settings found: $PA_ENV_DRAFT"
     if [ "$force_resume" -eq 1 ]; then
       if load_install_draft; then
         repo_dir="${DRAFT_REPO_DIR:-$repo_dir}"
         repo_branch="${DRAFT_REPO_BRANCH:-$repo_branch}"
         remote_url="${DRAFT_GIT_REMOTE_URL:-$remote_url}"
-        retention_days="${DRAFT_PA_LOG_RETENTION_DAYS:-$retention_days}"
+        retention_days="${DRAFT_PCG_LOG_RETENTION_DAYS:-$retention_days}"
         git_commit_name="${DRAFT_GIT_COMMIT_NAME:-$git_commit_name}"
         git_commit_email="${DRAFT_GIT_COMMIT_EMAIL:-$git_commit_email}"
         notify_mode="${DRAFT_NOTIFY_MODE:-$notify_mode}"
@@ -723,7 +732,7 @@ guided_env_setup() {
         repo_dir="${DRAFT_REPO_DIR:-$repo_dir}"
         repo_branch="${DRAFT_REPO_BRANCH:-$repo_branch}"
         remote_url="${DRAFT_GIT_REMOTE_URL:-$remote_url}"
-        retention_days="${DRAFT_PA_LOG_RETENTION_DAYS:-$retention_days}"
+        retention_days="${DRAFT_PCG_LOG_RETENTION_DAYS:-$retention_days}"
         git_commit_name="${DRAFT_GIT_COMMIT_NAME:-$git_commit_name}"
         git_commit_email="${DRAFT_GIT_COMMIT_EMAIL:-$git_commit_email}"
         notify_mode="${DRAFT_NOTIFY_MODE:-$notify_mode}"
@@ -828,12 +837,12 @@ guided_env_setup() {
   fi
 
   if [ "$notify_mode" = "later" ]; then
-    bot_token="PA_PLACEHOLDER_BOT_TOKEN"
-    chat_id="PA_PLACEHOLDER_CHAT_ID"
+    bot_token="PCG_PLACEHOLDER_BOT_TOKEN"
+    chat_id="PCG_PLACEHOLDER_CHAT_ID"
     webhook_enabled="false"
     webhook_url="https://example.com/your-webhook-endpoint"
-    webhook_token="PA_PLACEHOLDER_WEBHOOK_TOKEN"
-    ui_warn "Placeholder values will be saved. Update /root/.pa-agent.env before enabling notifications."
+    webhook_token="PCG_PLACEHOLDER_WEBHOOK_TOKEN"
+    ui_warn "Placeholder values will be saved. Update /root/.pcg-agent.env before enabling notifications."
   fi
 
   print_guided_input_summary "$repo_dir" "$repo_branch" "$remote_url" "$retention_days" "$git_commit_name" "$git_commit_email" "$notify_mode" "$bot_token" "$chat_id" "$webhook_url" "$webhook_token"
@@ -846,8 +855,8 @@ guided_env_setup() {
   case "$final_action" in
     save)
       save_install_draft "$repo_dir" "$repo_branch" "$remote_url" "$retention_days" "$git_commit_name" "$git_commit_email" "$notify_mode" "$bot_token" "$chat_id" "$webhook_url" "$webhook_token"
-      ui_ok "Settings saved to $PA_ENV_DRAFT"
-      ui_info "Resume with: proxmox-agent install --resume"
+      ui_ok "Settings saved to $PCG_ENV_DRAFT"
+      ui_info "Resume with: pcg install --resume"
       return 2
       ;;
     exit)
@@ -858,21 +867,21 @@ guided_env_setup() {
       ;;
   esac
 
-  set_env_kv "$PA_ENV_TARGET" "REPO_DIR" "$repo_dir"
-  set_env_kv "$PA_ENV_TARGET" "REPO_BRANCH" "$repo_branch"
-  set_env_kv "$PA_ENV_TARGET" "GIT_REMOTE_URL" "$remote_url"
-  set_env_kv "$PA_ENV_TARGET" "PA_LOG_RETENTION_DAYS" "$retention_days"
-  set_env_kv "$PA_ENV_TARGET" "GIT_COMMIT_NAME" "$git_commit_name"
-  set_env_kv "$PA_ENV_TARGET" "GIT_COMMIT_EMAIL" "$git_commit_email"
-  set_env_kv "$PA_ENV_TARGET" "BOT_TOKEN" "$bot_token"
-  set_env_kv "$PA_ENV_TARGET" "CHAT_ID" "$chat_id"
-  set_env_kv "$PA_ENV_TARGET" "WEBHOOK_ENABLED" "$webhook_enabled"
-  set_env_kv "$PA_ENV_TARGET" "WEBHOOK_URL" "$webhook_url"
-  set_env_kv "$PA_ENV_TARGET" "WEBHOOK_BEARER_TOKEN" "$webhook_token"
+  set_env_kv "$PCG_ENV_TARGET" "REPO_DIR" "$repo_dir"
+  set_env_kv "$PCG_ENV_TARGET" "REPO_BRANCH" "$repo_branch"
+  set_env_kv "$PCG_ENV_TARGET" "GIT_REMOTE_URL" "$remote_url"
+  set_env_kv "$PCG_ENV_TARGET" "PCG_LOG_RETENTION_DAYS" "$retention_days"
+  set_env_kv "$PCG_ENV_TARGET" "GIT_COMMIT_NAME" "$git_commit_name"
+  set_env_kv "$PCG_ENV_TARGET" "GIT_COMMIT_EMAIL" "$git_commit_email"
+  set_env_kv "$PCG_ENV_TARGET" "BOT_TOKEN" "$bot_token"
+  set_env_kv "$PCG_ENV_TARGET" "CHAT_ID" "$chat_id"
+  set_env_kv "$PCG_ENV_TARGET" "WEBHOOK_ENABLED" "$webhook_enabled"
+  set_env_kv "$PCG_ENV_TARGET" "WEBHOOK_URL" "$webhook_url"
+  set_env_kv "$PCG_ENV_TARGET" "WEBHOOK_BEARER_TOKEN" "$webhook_token"
 
-  chmod 600 "$PA_ENV_TARGET"
+  chmod 600 "$PCG_ENV_TARGET"
   clear_install_draft
-  pa_load_env
+  pcg_load_env
 }
 
 guided_github_auth() {
@@ -883,7 +892,7 @@ guided_github_auth() {
   fi
 
   if is_test_mode; then
-    ui_warn "PA_TEST_MODE=true -> skipping interactive GitHub SSH validation."
+    ui_warn "PCG_TEST_MODE=true -> skipping interactive GitHub SSH validation."
     return 0
   fi
   if ! generate_ssh_key_if_missing; then
@@ -909,14 +918,14 @@ guided_github_auth() {
 
 build_preinstall_actions() {
   PRE_ACTIONS=()
-  PRE_ACTIONS+=("Install canonical pa-* scripts into /usr/local/bin")
-  PRE_ACTIONS+=("Install canonical pa-* systemd units into /etc/systemd/system")
-  PRE_ACTIONS+=("Generate runtime version file /usr/local/bin/pa-agent-version from repo VERSION")
-  PRE_ACTIONS+=("Enable and start pa-backup-config.timer; enable pa-shutdown-proxmox.service and pa-boot-notify.service")
+  PRE_ACTIONS+=("Install canonical pcg-* scripts into /usr/local/bin")
+  PRE_ACTIONS+=("Install canonical pcg-* systemd units into /etc/systemd/system")
+  PRE_ACTIONS+=("Generate runtime version file /usr/local/bin/pcg-agent-version from repo VERSION")
+  PRE_ACTIONS+=("Enable and start pcg-backup-config.timer; enable pcg-shutdown-proxmox.service and pcg-boot-notify.service")
   PRE_ACTIONS+=("Run post-install doctor validation")
 
-  if [ -f "$PA_ENV_LEGACY" ] && [ ! -f "$PA_ENV_TARGET" ]; then
-    PRE_ACTIONS+=("Migrate env file from $PA_ENV_LEGACY to $PA_ENV_TARGET")
+  if [ -f "$PCG_ENV_LEGACY" ] && [ ! -f "$PCG_ENV_TARGET" ]; then
+    PRE_ACTIONS+=("Migrate env file from $PCG_ENV_LEGACY to $PCG_ENV_TARGET")
   fi
   if detect_legacy_artifacts; then
     PRE_ACTIONS+=("Stop and disable legacy units (backup-config*, proxmox-bootup-telegram, shutdown-proxmox)")
@@ -964,24 +973,24 @@ collect_preinstall_report_data() {
   fi
 
   PRE_CURRENT_VERSION="unknown"
-  if [ -f "$PA_RUNTIME_VERSION_FILE" ]; then
+  if [ -f "$PCG_RUNTIME_VERSION_FILE" ]; then
     # shellcheck disable=SC1090
-    source "$PA_RUNTIME_VERSION_FILE" || true
+    source "$PCG_RUNTIME_VERSION_FILE" || true
     PRE_CURRENT_VERSION="${AGENT_VERSION:-unknown}"
-  elif [ -f "$PA_RUNTIME_VERSION_LEGACY" ]; then
+  elif [ -f "$PCG_RUNTIME_VERSION_LEGACY" ]; then
     # shellcheck disable=SC1090
-    source "$PA_RUNTIME_VERSION_LEGACY" || true
+    source "$PCG_RUNTIME_VERSION_LEGACY" || true
     PRE_CURRENT_VERSION="${AGENT_VERSION:-unknown}"
   fi
 
   PRE_ENV_SOURCE="missing"
-  if [ -f "$PA_ENV_TARGET" ]; then
-    PRE_ENV_SOURCE="$PA_ENV_TARGET"
-  elif [ -f "$PA_ENV_LEGACY" ]; then
-    PRE_ENV_SOURCE="$PA_ENV_LEGACY"
+  if [ -f "$PCG_ENV_TARGET" ]; then
+    PRE_ENV_SOURCE="$PCG_ENV_TARGET"
+  elif [ -f "$PCG_ENV_LEGACY" ]; then
+    PRE_ENV_SOURCE="$PCG_ENV_LEGACY"
   fi
 
-  pa_load_env
+  pcg_load_env
   [ -n "${REPO_DIR:-}" ] || PRE_WARNINGS+=("REPO_DIR not set (default /root/pve-config will be used)")
   [ -n "${REPO_BRANCH:-}" ] || PRE_WARNINGS+=("REPO_BRANCH not set (default main will be used)")
   [ -n "${GIT_COMMIT_NAME:-}" ] || PRE_WARNINGS+=("GIT_COMMIT_NAME not set (installer will prompt for commit author name)")
@@ -995,17 +1004,17 @@ collect_preinstall_report_data() {
   fi
 
   if is_test_mode; then
-    PRE_NOTES+=("PA_TEST_MODE=true; GitHub SSH and systemctl enforcement are relaxed for test runs")
+    PRE_NOTES+=("PCG_TEST_MODE=true; GitHub SSH and systemctl enforcement are relaxed for test runs")
   elif is_ssh_remote_url "${GIT_REMOTE_URL:-}" && ! validate_github_ssh; then
     PRE_WARNINGS+=("GitHub SSH auth is not currently valid; installer will guide key setup/retry")
   fi
 
   local u
-  for u in "${PA_LEGACY_UNIT_FILES[@]}"; do
-    [ -f "$PA_SYSTEMD_TARGET/$u" ] && PRE_LEGACY_UNITS_PRESENT+=("$u")
+  for u in "${PCG_LEGACY_UNIT_FILES[@]}"; do
+    [ -f "$PCG_SYSTEMD_TARGET/$u" ] && PRE_LEGACY_UNITS_PRESENT+=("$u")
   done
-  for u in "${PA_CANONICAL_UNIT_FILES[@]}"; do
-    [ -f "$PA_SYSTEMD_TARGET/$u" ] && PRE_CANONICAL_UNITS_PRESENT+=("$u")
+  for u in "${PCG_CANONICAL_UNIT_FILES[@]}"; do
+    [ -f "$PCG_SYSTEMD_TARGET/$u" ] && PRE_CANONICAL_UNITS_PRESENT+=("$u")
   done
 
   PRE_NOTES+=("Env file in use for current settings: $PRE_ENV_SOURCE")
@@ -1241,13 +1250,13 @@ restore_unit_states() {
 
 cleanup_managed_artifacts() {
   local f
-  for f in "${PA_CANONICAL_BIN_FILES[@]}" "${PA_LEGACY_BIN_FILES[@]}"; do
-    rm -f "$PA_BIN_TARGET/$f"
+  for f in "${PCG_CANONICAL_BIN_FILES[@]}" "${PCG_LEGACY_BIN_FILES[@]}"; do
+    rm -f "$PCG_BIN_TARGET/$f"
   done
-  for f in "${PA_CANONICAL_UNIT_FILES[@]}" "${PA_LEGACY_UNIT_FILES[@]}"; do
-    rm -f "$PA_SYSTEMD_TARGET/$f"
+  for f in "${PCG_CANONICAL_UNIT_FILES[@]}" "${PCG_LEGACY_UNIT_FILES[@]}"; do
+    rm -f "$PCG_SYSTEMD_TARGET/$f"
   done
-  rm -f "$PA_ENV_TARGET" "$PA_ENV_LEGACY"
+  rm -f "$PCG_ENV_TARGET" "$PCG_ENV_LEGACY"
 }
 
 backup_current_install() {
@@ -1255,16 +1264,16 @@ backup_current_install() {
   local f
   mkdir -p "$backup_dir/bin" "$backup_dir/systemd" "$backup_dir/env"
 
-  for f in "${PA_CANONICAL_BIN_FILES[@]}" "${PA_LEGACY_BIN_FILES[@]}"; do
-    [ -f "$PA_BIN_TARGET/$f" ] && cp -a "$PA_BIN_TARGET/$f" "$backup_dir/bin/$f"
+  for f in "${PCG_CANONICAL_BIN_FILES[@]}" "${PCG_LEGACY_BIN_FILES[@]}"; do
+    [ -f "$PCG_BIN_TARGET/$f" ] && cp -a "$PCG_BIN_TARGET/$f" "$backup_dir/bin/$f"
   done
 
-  for f in "${PA_CANONICAL_UNIT_FILES[@]}" "${PA_LEGACY_UNIT_FILES[@]}"; do
-    [ -f "$PA_SYSTEMD_TARGET/$f" ] && cp -a "$PA_SYSTEMD_TARGET/$f" "$backup_dir/systemd/$f"
+  for f in "${PCG_CANONICAL_UNIT_FILES[@]}" "${PCG_LEGACY_UNIT_FILES[@]}"; do
+    [ -f "$PCG_SYSTEMD_TARGET/$f" ] && cp -a "$PCG_SYSTEMD_TARGET/$f" "$backup_dir/systemd/$f"
   done
 
-  [ -f "$PA_ENV_TARGET" ] && cp -a "$PA_ENV_TARGET" "$backup_dir/env/.pa-agent.env"
-  [ -f "$PA_ENV_LEGACY" ] && cp -a "$PA_ENV_LEGACY" "$backup_dir/env/.backup-config.env"
+  [ -f "$PCG_ENV_TARGET" ] && cp -a "$PCG_ENV_TARGET" "$backup_dir/env/.pcg-agent.env"
+  [ -f "$PCG_ENV_LEGACY" ] && cp -a "$PCG_ENV_LEGACY" "$backup_dir/env/.backup-config.env"
 
   capture_unit_states "$backup_dir"
 }
@@ -1278,52 +1287,52 @@ restore_from_backup() {
 
   for f in "$backup_dir"/bin/*; do
     [ -f "$f" ] || continue
-    install -m 755 "$f" "$PA_BIN_TARGET/$(basename "$f")"
+    install -m 755 "$f" "$PCG_BIN_TARGET/$(basename "$f")"
   done
   for f in "$backup_dir"/systemd/*; do
     [ -f "$f" ] || continue
-    install -m 644 "$f" "$PA_SYSTEMD_TARGET/$(basename "$f")"
+    install -m 644 "$f" "$PCG_SYSTEMD_TARGET/$(basename "$f")"
   done
 
-  [ -f "$backup_dir/env/.pa-agent.env" ] && install -m 600 "$backup_dir/env/.pa-agent.env" "$PA_ENV_TARGET"
-  [ -f "$backup_dir/env/.backup-config.env" ] && install -m 600 "$backup_dir/env/.backup-config.env" "$PA_ENV_LEGACY"
+  [ -f "$backup_dir/env/.pcg-agent.env" ] && install -m 600 "$backup_dir/env/.pcg-agent.env" "$PCG_ENV_TARGET"
+  [ -f "$backup_dir/env/.backup-config.env" ] && install -m 600 "$backup_dir/env/.backup-config.env" "$PCG_ENV_LEGACY"
 
-  pa_systemctl daemon-reload
+  pcg_systemctl daemon-reload
   restore_unit_states "$backup_dir"
 }
 
 migrate_env_file() {
-  if [ ! -f "$PA_ENV_TARGET" ] && [ -f "$PA_ENV_LEGACY" ]; then
-    cp -a "$PA_ENV_LEGACY" "$PA_ENV_TARGET"
-    chmod 600 "$PA_ENV_TARGET"
+  if [ ! -f "$PCG_ENV_TARGET" ] && [ -f "$PCG_ENV_LEGACY" ]; then
+    cp -a "$PCG_ENV_LEGACY" "$PCG_ENV_TARGET"
+    chmod 600 "$PCG_ENV_TARGET"
   fi
 }
 
 disable_legacy_units() {
   local unit
-  for unit in "${PA_LEGACY_UNIT_FILES[@]}"; do
-    pa_systemctl stop "$unit" >/dev/null 2>&1 || true
-    pa_systemctl disable "$unit" >/dev/null 2>&1 || true
+  for unit in "${PCG_LEGACY_UNIT_FILES[@]}"; do
+    pcg_systemctl stop "$unit" >/dev/null 2>&1 || true
+    pcg_systemctl disable "$unit" >/dev/null 2>&1 || true
   done
 }
 
 remove_legacy_artifacts() {
   local f
-  for f in "${PA_LEGACY_BIN_FILES[@]}"; do
-    rm -f "$PA_BIN_TARGET/$f"
+  for f in "${PCG_LEGACY_BIN_FILES[@]}"; do
+    rm -f "$PCG_BIN_TARGET/$f"
   done
-  for f in "${PA_LEGACY_UNIT_FILES[@]}"; do
-    rm -f "$PA_SYSTEMD_TARGET/$f"
+  for f in "${PCG_LEGACY_UNIT_FILES[@]}"; do
+    rm -f "$PCG_SYSTEMD_TARGET/$f"
   done
-  rm -f "$PA_ENV_LEGACY" "$PA_RUNTIME_VERSION_LEGACY"
+  rm -f "$PCG_ENV_LEGACY" "$PCG_RUNTIME_VERSION_LEGACY"
 }
 
 perform_uninstall() {
   require_root
   local ts backup_dir
   ts="$(date +%Y%m%d-%H%M%S)"
-  backup_dir="$PA_BACKUP_DIR_BASE/uninstall-$ts"
-  mkdir -p "$PA_BACKUP_DIR_BASE"
+  backup_dir="$PCG_BACKUP_DIR_BASE/uninstall-$ts"
+  mkdir -p "$PCG_BACKUP_DIR_BASE"
   backup_current_install "$backup_dir"
 
   ui_warn "Uninstall will remove managed scripts, units, runtime version file, and env files."
@@ -1346,32 +1355,32 @@ perform_uninstall() {
 install_canonical_files_from_repo() {
   local f
   local bin_files=(
-    "pa-doctor.sh"
-    "pa-backup-config.sh"
-    "pa-boot-notify.sh"
-    "pa-send-telegram.sh"
-    "pa-send-webhook.sh"
-    "pa-shutdown-proxmox.sh"
-    "pa-agent-lib.sh"
-    "proxmox-agent"
+    "pcg-doctor.sh"
+    "pcg-backup-config.sh"
+    "pcg-boot-notify.sh"
+    "pcg-send-telegram.sh"
+    "pcg-send-webhook.sh"
+    "pcg-shutdown-proxmox.sh"
+    "pcg-agent-lib.sh"
+    "pcg"
   )
   local unit_files=(
-    "pa-backup-config.service"
-    "pa-backup-config.timer"
-    "pa-boot-notify.service"
-    "pa-shutdown-proxmox.service"
+    "pcg-backup-config.service"
+    "pcg-backup-config.timer"
+    "pcg-boot-notify.service"
+    "pcg-shutdown-proxmox.service"
   )
 
-  mkdir -p "$PA_BIN_TARGET" "$PA_SYSTEMD_TARGET"
+  mkdir -p "$PCG_BIN_TARGET" "$PCG_SYSTEMD_TARGET"
 
   for f in "${bin_files[@]}"; do
-    install -m 755 "$REPO_ROOT/bin/$f" "$PA_BIN_TARGET/$f"
+    install -m 755 "$REPO_ROOT/bin/$f" "$PCG_BIN_TARGET/$f"
   done
   for f in "${unit_files[@]}"; do
-    install -m 644 "$REPO_ROOT/systemd/$f" "$PA_SYSTEMD_TARGET/$f"
+    install -m 644 "$REPO_ROOT/systemd/$f" "$PCG_SYSTEMD_TARGET/$f"
   done
-  if [ ! -f "$PA_ENV_TARGET" ] && [ -f "$PA_ENV_EXAMPLE_SOURCE" ]; then
-    install -m 600 "$PA_ENV_EXAMPLE_SOURCE" "$PA_ENV_TARGET"
+  if [ ! -f "$PCG_ENV_TARGET" ] && [ -f "$PCG_ENV_EXAMPLE_SOURCE" ]; then
+    install -m 600 "$PCG_ENV_EXAMPLE_SOURCE" "$PCG_ENV_TARGET"
   fi
 }
 
@@ -1379,39 +1388,39 @@ install_canonical_files_from_source_dir() {
   local srcdir="$1"
   local f
   local bin_files=(
-    "pa-doctor.sh"
-    "pa-backup-config.sh"
-    "pa-boot-notify.sh"
-    "pa-send-telegram.sh"
-    "pa-send-webhook.sh"
-    "pa-shutdown-proxmox.sh"
-    "pa-agent-lib.sh"
-    "proxmox-agent"
+    "pcg-doctor.sh"
+    "pcg-backup-config.sh"
+    "pcg-boot-notify.sh"
+    "pcg-send-telegram.sh"
+    "pcg-send-webhook.sh"
+    "pcg-shutdown-proxmox.sh"
+    "pcg-agent-lib.sh"
+    "pcg"
   )
   local unit_files=(
-    "pa-backup-config.service"
-    "pa-backup-config.timer"
-    "pa-boot-notify.service"
-    "pa-shutdown-proxmox.service"
+    "pcg-backup-config.service"
+    "pcg-backup-config.timer"
+    "pcg-boot-notify.service"
+    "pcg-shutdown-proxmox.service"
   )
 
-  mkdir -p "$PA_BIN_TARGET" "$PA_SYSTEMD_TARGET"
+  mkdir -p "$PCG_BIN_TARGET" "$PCG_SYSTEMD_TARGET"
 
   for f in "${bin_files[@]}"; do
-    install -m 755 "$srcdir/bin/$f" "$PA_BIN_TARGET/$f"
+    install -m 755 "$srcdir/bin/$f" "$PCG_BIN_TARGET/$f"
   done
   for f in "${unit_files[@]}"; do
-    install -m 644 "$srcdir/systemd/$f" "$PA_SYSTEMD_TARGET/$f"
+    install -m 644 "$srcdir/systemd/$f" "$PCG_SYSTEMD_TARGET/$f"
   done
-  if [ ! -f "$PA_ENV_TARGET" ] && [ -f "$srcdir/env/pa-agent.env.example" ]; then
-    install -m 600 "$srcdir/env/pa-agent.env.example" "$PA_ENV_TARGET"
+  if [ ! -f "$PCG_ENV_TARGET" ] && [ -f "$srcdir/env/pcg-agent.env.example" ]; then
+    install -m 600 "$srcdir/env/pcg-agent.env.example" "$PCG_ENV_TARGET"
   fi
 }
 
 enable_canonical_services() {
-  pa_systemctl daemon-reload
-  pa_systemctl enable pa-backup-config.timer pa-shutdown-proxmox.service pa-boot-notify.service
-  pa_systemctl start pa-backup-config.timer || true
+  pcg_systemctl daemon-reload
+  pcg_systemctl enable pcg-backup-config.timer pcg-shutdown-proxmox.service pcg-boot-notify.service
+  pcg_systemctl start pcg-backup-config.timer || true
 }
 
 doctor_add_result() {
@@ -1487,9 +1496,9 @@ doctor_emit_json() {
     [ "$first" -eq 1 ] || printf ','
     first=0
     printf '{"key":"%s","status":"%s","message":"%s"}' \
-      "$(pa_json_escape "${DOCTOR_KEYS[$i]}")" \
-      "$(pa_json_escape "${DOCTOR_STATUS[$i]}")" \
-      "$(pa_json_escape "${DOCTOR_MSG[$i]}")"
+      "$(pcg_json_escape "${DOCTOR_KEYS[$i]}")" \
+      "$(pcg_json_escape "${DOCTOR_STATUS[$i]}")" \
+      "$(pcg_json_escape "${DOCTOR_MSG[$i]}")"
   done
   printf ']}'
   echo
@@ -1511,20 +1520,20 @@ cmd_install() {
   require_root
 
   if [ "$clear_draft" -eq 1 ]; then
-    if [ -f "$PA_ENV_DRAFT" ]; then
+    if [ -f "$PCG_ENV_DRAFT" ]; then
       clear_install_draft
-      ui_ok "Cleared saved installer draft: $PA_ENV_DRAFT"
+      ui_ok "Cleared saved installer draft: $PCG_ENV_DRAFT"
     else
-      ui_info "No saved installer draft found at $PA_ENV_DRAFT"
+      ui_info "No saved installer draft found at $PCG_ENV_DRAFT"
     fi
     if [ "$force_resume" -eq 0 ]; then
       exit 0
     fi
   fi
 
-  if [ "$force_resume" -eq 1 ] && [ ! -f "$PA_ENV_DRAFT" ]; then
-    ui_err "Resume requested but no saved draft was found at $PA_ENV_DRAFT"
-    ui_info "Run proxmox-agent install and choose Final action: save first."
+  if [ "$force_resume" -eq 1 ] && [ ! -f "$PCG_ENV_DRAFT" ]; then
+    ui_err "Resume requested but no saved draft was found at $PCG_ENV_DRAFT"
+    ui_info "Run pcg install and choose Final action: save first."
     exit 1
   fi
 
@@ -1536,7 +1545,7 @@ cmd_install() {
   fi
 
   preflight_checks || exit 1
-  pa_load_version
+  pcg_load_version
   if [ "${AGENT_VERSION:-unknown}" != "unknown" ]; then
     ui_warn "Detected existing installation version: v$AGENT_VERSION"
     local existing_action
@@ -1592,7 +1601,7 @@ cmd_install() {
       rc=$?
       if [ "$rc" -eq 2 ]; then
         restore_from_backup "$backup_dir"
-        ui_warn "Install paused. Resume later with: proxmox-agent install --resume"
+        ui_warn "Install paused. Resume later with: pcg install --resume"
         exit 0
       elif [ "$rc" -ne 0 ]; then
         rc=1
@@ -1604,10 +1613,10 @@ cmd_install() {
     [ "$rc" -eq 0 ] && enable_canonical_services || rc=1
     if [ "$rc" -eq 0 ] && [ "$legacy_before" -eq 1 ]; then
       remove_legacy_artifacts
-      pa_systemctl daemon-reload
+      pcg_systemctl daemon-reload
       migrated=1
     fi
-    [ "$rc" -eq 0 ] && "$PA_BIN_TARGET/proxmox-agent" doctor >/dev/null 2>&1 || rc=1
+    [ "$rc" -eq 0 ] && "$PCG_BIN_TARGET/pcg" doctor >/dev/null 2>&1 || rc=1
   fi
   set -e
 
@@ -1617,17 +1626,17 @@ cmd_install() {
     exit 1
   fi
 
-  pa_load_version
-  pa_load_env
-  pa_send_webhook "install" "success" "Install completed" "Proxmox agent installed. migrated_legacy=$migrated" || true
+  pcg_load_version
+  pcg_load_env
+  pcg_send_webhook "install" "success" "Install completed" "Proxmox agent installed. migrated_legacy=$migrated" || true
   ui_ok "Install complete (agent v$(get_repo_version), migrated_legacy=$migrated)."
   ui_info "Next steps:"
-  echo "  1) proxmox-agent doctor --json"
-  echo "  2) proxmox-agent backup"
+  echo "  1) pcg doctor --json"
+  echo "  2) pcg backup"
   if is_test_mode; then
     echo "  3) [test mode] systemctl checks skipped"
   else
-    echo "  3) systemctl status pa-backup-config.timer"
+    echo "  3) systemctl status pcg-backup-config.timer"
   fi
 }
 
@@ -1651,17 +1660,17 @@ cmd_doctor() {
     doctor_check_binary systemctl
   fi
 
-  pa_load_version
+  pcg_load_version
   if [ "${AGENT_VERSION:-unknown}" = "unknown" ]; then
     doctor_add_result "agent_version" "fail" "runtime version missing"
   else
     doctor_add_result "agent_version" "ok" "$AGENT_VERSION"
   fi
 
-  if [ -f "$PA_ENV_TARGET" ]; then
-    doctor_add_result "env_file" "ok" "$PA_ENV_TARGET"
+  if [ -f "$PCG_ENV_TARGET" ]; then
+    doctor_add_result "env_file" "ok" "$PCG_ENV_TARGET"
   else
-    doctor_add_result "env_file" "fail" "missing $PA_ENV_TARGET"
+    doctor_add_result "env_file" "fail" "missing $PCG_ENV_TARGET"
   fi
 
   local legacy_count
@@ -1672,8 +1681,8 @@ cmd_doctor() {
     doctor_add_result "migration_legacy_artifacts" "fail" "$legacy_count legacy artifacts still present"
   fi
 
-  pa_load_env
-  if pa_bool_true "${WEBHOOK_ENABLED:-false}"; then
+  pcg_load_env
+  if pcg_bool_true "${WEBHOOK_ENABLED:-false}"; then
     if [[ "${WEBHOOK_URL:-}" =~ ^https?:// ]]; then
       doctor_add_result "webhook_url" "ok" "configured"
     else
@@ -1689,15 +1698,15 @@ cmd_doctor() {
     doctor_add_result "telegram" "ok" "not configured"
   fi
 
-  doctor_check_exec "$PA_BIN_TARGET/pa-backup-config.sh"
-  doctor_check_exec "$PA_BIN_TARGET/pa-send-telegram.sh"
-  doctor_check_exec "$PA_BIN_TARGET/pa-send-webhook.sh"
-  doctor_check_exec "$PA_BIN_TARGET/pa-shutdown-proxmox.sh"
+  doctor_check_exec "$PCG_BIN_TARGET/pcg-backup-config.sh"
+  doctor_check_exec "$PCG_BIN_TARGET/pcg-send-telegram.sh"
+  doctor_check_exec "$PCG_BIN_TARGET/pcg-send-webhook.sh"
+  doctor_check_exec "$PCG_BIN_TARGET/pcg-shutdown-proxmox.sh"
 
-  doctor_check_service_state pa-backup-config.timer
-  doctor_check_service_state pa-shutdown-proxmox.service
-  doctor_check_service_state pa-boot-notify.service
-  doctor_check_active_state pa-backup-config.timer
+  doctor_check_service_state pcg-backup-config.timer
+  doctor_check_service_state pcg-shutdown-proxmox.service
+  doctor_check_service_state pcg-boot-notify.service
+  doctor_check_active_state pcg-backup-config.timer
 
   if is_ssh_remote_url "${GIT_REMOTE_URL:-}"; then
     if validate_github_ssh; then
@@ -1723,7 +1732,7 @@ cmd_doctor() {
     doctor_emit_plain
   fi
 
-  pa_send_webhook "doctor" "$( [ "$DOCTOR_FAILED" -eq 0 ] && echo success || echo failed )" \
+  pcg_send_webhook "doctor" "$( [ "$DOCTOR_FAILED" -eq 0 ] && echo success || echo failed )" \
     "Doctor completed" \
     "Doctor run finished with status $( [ "$DOCTOR_FAILED" -eq 0 ] && echo ok || echo fail )." || true
 
@@ -1732,13 +1741,13 @@ cmd_doctor() {
 
 cmd_backup() {
   require_root
-  "$PA_BIN_TARGET/pa-backup-config.sh"
+  "$PCG_BIN_TARGET/pcg-backup-config.sh"
 }
 
 cmd_notify() {
   require_root
   local msg="${1:-Proxmox agent notification test}"
-  if "$PA_BIN_TARGET/pa-send-telegram.sh" "$msg"; then
+  if "$PCG_BIN_TARGET/pcg-send-telegram.sh" "$msg"; then
     ui_ok "Telegram notification sent."
   else
     ui_err "Telegram notification failed."
@@ -1808,8 +1817,8 @@ cmd_upgrade() {
   migrated=0
   detect_legacy_artifacts && legacy_before=1
 
-  mkdir -p "$(dirname "$PA_UPGRADE_LOG")"
-  touch "$PA_UPGRADE_LOG"
+  mkdir -p "$(dirname "$PCG_UPGRADE_LOG")"
+  touch "$PCG_UPGRADE_LOG"
 
   if [ "$channel" = "stable" ]; then
     [ -n "$target" ] || target="$(resolve_latest_tag "$source")"
@@ -1832,7 +1841,7 @@ cmd_upgrade() {
     exit 0
   fi
 
-  echo "$(date -Is) channel=$channel source=$source current=$current_version target=$target_version backup=$backup_dir legacy_before=$legacy_before" >> "$PA_UPGRADE_LOG"
+  echo "$(date -Is) channel=$channel source=$source current=$current_version target=$target_version backup=$backup_dir legacy_before=$legacy_before" >> "$PCG_UPGRADE_LOG"
 
   set +e
   install_canonical_files_from_source_dir "$srcdir"
@@ -1844,10 +1853,10 @@ cmd_upgrade() {
     enable_canonical_services || rc=1
     if [ "$rc" -eq 0 ] && [ "$legacy_before" -eq 1 ]; then
       remove_legacy_artifacts
-      pa_systemctl daemon-reload
+      pcg_systemctl daemon-reload
       migrated=1
     fi
-    [ "$rc" -eq 0 ] && "$PA_BIN_TARGET/proxmox-agent" doctor >/dev/null 2>&1 || rc=1
+    [ "$rc" -eq 0 ] && "$PCG_BIN_TARGET/pcg" doctor >/dev/null 2>&1 || rc=1
   fi
   set -e
 
@@ -1857,18 +1866,18 @@ cmd_upgrade() {
     exit 1
   fi
 
-  pa_load_version
-  pa_load_env
-  pa_send_webhook "install" "success" "Upgrade completed" \
+  pcg_load_version
+  pcg_load_env
+  pcg_send_webhook "install" "success" "Upgrade completed" \
     "Upgraded from v$current_version to v$target_version via $channel; migrated_legacy=$migrated." || true
 
-  echo "$(date -Is) status=success migrated_legacy=$migrated" >> "$PA_UPGRADE_LOG"
+  echo "$(date -Is) status=success migrated_legacy=$migrated" >> "$PCG_UPGRADE_LOG"
   ui_ok "Upgrade complete: v$current_version -> v$target_version ($channel, migrated_legacy=$migrated)."
 }
 
 usage() {
   cat <<EOF
-Usage: proxmox-agent <command> [options]
+Usage: pcg <command> [options]
 
 Commands:
   install [--resume|--clear-draft]
@@ -1892,7 +1901,7 @@ main() {
   case "$cmd" in
     install) cmd_install "$@" ;;
     doctor) cmd_doctor "$@" ;;
-    preinstall-report|pa-doctor) cmd_preinstall_report "$@" ;;
+    preinstall-report|pcg-doctor) cmd_preinstall_report "$@" ;;
     backup) cmd_backup "$@" ;;
     notify) cmd_notify "$@" ;;
     uninstall) perform_uninstall "$@" ;;

@@ -1,27 +1,27 @@
 #!/bin/bash
 
 # ============================================================
-# pa-send-telegram.sh
-# Agent Version: runtime sourced from pa-agent-version
+# pcg-send-telegram.sh
+# Agent Version: runtime sourced from pcg-agent-version
 # ============================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pa-agent-lib.sh}"
-[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pa-agent-lib.sh"
+LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pcg-agent-lib.sh}"
+[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pcg-agent-lib.sh"
 # shellcheck disable=SC1090
 source "$LIB_FILE"
 
-pa_load_version
-pa_load_env
+pcg_load_version
+pcg_load_env
 
-LOG_FILE="${TELEGRAM_LOG_FILE:-/var/log/pa-send-telegram.log}"
+LOG_FILE="${TELEGRAM_LOG_FILE:-/var/log/pcg-send-telegram.log}"
 TIMEOUT="${TELEGRAM_TIMEOUT_SECONDS:-10}"
 RETRIES="${TELEGRAM_MAX_RETRIES:-2}"
 MESSAGE="${1:-}"
 
-pa_rotate_log_family "$LOG_FILE" "${TELEGRAM_LOG_RETENTION_DAYS:-}"
+pcg_rotate_log_family "$LOG_FILE" "${TELEGRAM_LOG_RETENTION_DAYS:-}"
 
 timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
 log() { echo "[$(timestamp)] $*" >> "$LOG_FILE"; }

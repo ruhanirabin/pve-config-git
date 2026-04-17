@@ -1,22 +1,22 @@
 #!/bin/bash
 
 # ============================================================
-# pa-backup-config.sh
-# Agent Version: runtime sourced from pa-agent-version
+# pcg-backup-config.sh
+# Agent Version: runtime sourced from pcg-agent-version
 # ============================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pa-agent-lib.sh}"
-[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pa-agent-lib.sh"
+LIB_FILE="${LIB_FILE:-$SCRIPT_DIR/pcg-agent-lib.sh}"
+[ -f "$LIB_FILE" ] || LIB_FILE="/usr/local/bin/pcg-agent-lib.sh"
 # shellcheck disable=SC1090
 source "$LIB_FILE"
 
-pa_load_version
-pa_load_env
+pcg_load_version
+pcg_load_env
 
-LOG_FILE="${BACKUP_LOG_FILE:-/var/log/pa-backup-config.log}"
+LOG_FILE="${BACKUP_LOG_FILE:-/var/log/pcg-backup-config.log}"
 pa_rotate_log_family "$LOG_FILE" "${BACKUP_LOG_RETENTION_DAYS:-}"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -42,7 +42,7 @@ echo "=== Backup start: node=$NODE_NAME time=$DATE_TAG agent=v${AGENT_VERSION:-u
 
 if [[ "$PWD" == "$REPO_DIR" || "$PWD" == "$REPO_DIR/"* ]]; then
   echo "Do not run this script from inside the git repo folder."
-  pa_send_webhook "backup" "failed" "Backup blocked" "Script executed from inside REPO_DIR." || true
+  pcg_send_webhook "backup" "failed" "Backup blocked" "Script executed from inside REPO_DIR." || true
   exit 1
 fi
 
@@ -87,7 +87,7 @@ git add -A
 
 if git diff --cached --quiet; then
   echo "No changes detected."
-  pa_send_webhook "backup" "no_changes" "No backup changes" "No files changed for node $NODE_NAME." || true
+  pcg_send_webhook "backup" "no_changes" "No backup changes" "No files changed for node $NODE_NAME." || true
   exit 0
 fi
 
@@ -125,7 +125,7 @@ if [[ -n "$CRITICAL" ]]; then
   send_telegram "$MSG"
 fi
 
-pa_send_webhook "backup" "success" "Backup pushed" \
+pcg_send_webhook "backup" "success" "Backup pushed" \
   "Committed $CHANGES changed file(s) on node $NODE_NAME to branch $REPO_BRANCH." || true
 
 echo "Backup complete for $NODE_NAME (agent v${AGENT_VERSION:-unknown})."
