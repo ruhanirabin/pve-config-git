@@ -1,3 +1,7 @@
+## 0.7.27
+
+- fix: correct mixed `PA_*` to `PCG_*` variable names in migration functions (`cmd_install`, `cmd_upgrade`, `collect_preinstall_report_data`, `detect_legacy_artifacts`). Ensures legacy artifact detection and migration work correctly for users upgrading from pre-`pcg` naming.
+
 ## 0.7.26
 
 - fix: replace non-atomic lockfile with `flock` atomic lock on `/var/lock/pcg-shutdown.lock` to prevent race conditions.

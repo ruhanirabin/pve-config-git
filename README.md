@@ -137,7 +137,7 @@ If you have your own notification system (Discord, Slack, n8n, etc.), prepare:
 
 **Remember:** Run this in the Proxmox VE shell, not inside a VM.
 
-**Note:** The one-liner bootstrap URL references the new repo name `ruhanirabin/pve-config-git`. This will not work until you rename the GitHub repository. For now, use the local repo install method.
+**Note:** The bootstrap URL is now active. The repository has been renamed to `ruhanirabin/pve-config-git`.
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/ruhanirabin/pve-config-git/main/install.sh)"
