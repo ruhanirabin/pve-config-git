@@ -18,7 +18,7 @@ SUMMARY="${3:-}"
 DETAILS="${4:-}"
 
 if [ -z "$EVENT" ]; then
-  pa_ui_err "Usage: pa-send-webhook.sh <event> [status] [summary] [details]"
+  pcg_ui_err "Usage: pcg-send-webhook.sh <event> [status] [summary] [details]"
   exit 1
 fi
 

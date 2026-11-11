@@ -10,6 +10,8 @@ info() { echo "[TEST:BACKUP] $*"; }
 fail() { echo "[TEST:BACKUP:FAIL] $*" >&2; exit 1; }
 warn() { echo "[TEST:BACKUP:WARN] $*" >&2; }
 
+bash "$(dirname "$0")/test-backup-startup.sh"
+
 # Setup test environment
 export REPO_DIR=/tmp/test-pve-config
 export REPO_BRANCH=main
