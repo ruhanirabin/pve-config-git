@@ -306,6 +306,7 @@ map_cmds_to_packages() {
     case "$pkg_manager:$cmd" in
       apt:ssh|apt:ssh-keygen) pkg="openssh-client" ;;
       apt:systemctl) pkg="systemd" ;;
+      apt:logger) pkg="bsdutils" ;;
       *:flock|*:logger) pkg="util-linux" ;;
       *:find) pkg="findutils" ;;
       *:install|*:timeout) pkg="coreutils" ;;

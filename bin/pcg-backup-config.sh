@@ -74,7 +74,7 @@ if [[ "$PWD" == "$REPO_DIR" || "$PWD" == "$REPO_DIR/"* ]]; then
   exit 1
 fi
 
-command -v logger >/dev/null || { echo "Missing dependency: logger (util-linux)"; exit 1; }
+command -v logger >/dev/null || { echo "Missing dependency: logger (bsdutils on Proxmox/Debian)"; exit 1; }
 BACKUP_PHASE="lock"
 command -v flock >/dev/null || { echo "Missing dependency: flock (util-linux)"; exit 1; }
 mkdir -p "$REPO_DIR"
