@@ -25,7 +25,7 @@ if ! grep -q 'flock -n 200' bin/pcg-shutdown-proxmox.sh; then
 fi
 info "✓ Atomic flock present"
 
-if ! grep -q 'is-system-running.*stopping' bin/pcg-shutdown-proxmox.sh; then
+if ! grep -q 'system_state.*stopping' bin/pcg-shutdown-proxmox.sh; then
   fail "Missing shutdown-state detection"
 fi
 info "✓ Shutdown-state detection present"
@@ -64,13 +64,8 @@ info "Testing flock mechanism..."
   fi
 )
 
-# Test 5: Check for shutdown-state detection logic
-info "Verifying shutdown-state detection logic..."
-if grep -A2 'is-system-running' bin/pcg-shutdown-proxmox.sh | grep -q 'exit 1'; then
-  info "✓ Shutdown-state detection aborts correctly"
-else
-  warn "Shutdown-state detection may not abort properly"
-fi
+# Test 5: Runtime guards and guest continuation are covered by the isolated
+# test-shutdown-behavior.sh suite, rather than a source-text assertion.
 
 # Test 6: Verify boot protection (uptime check)
 if ! grep -q '/proc/uptime' bin/pcg-shutdown-proxmox.sh; then

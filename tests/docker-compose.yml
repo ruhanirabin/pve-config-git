@@ -3,9 +3,9 @@ version: '3.8'
 # Proxmox Agent Test Environment
 # Supports two modes:
 #   - PVE mode: Uses real Proxmox VE container (Linux only, requires cgroups)
-#   - Ubuntu mode: Uses Ubuntu 22.04 for Windows compatibility (PA_TEST_MODE=true)
+#   - Ubuntu mode: Uses Ubuntu 22.04 for Windows compatibility (PCG_TEST_MODE=true)
 #
-# Mode selection is controlled by PA_TEST_MODE environment variable or --pve-mode flag in run-tests.sh
+# Mode selection is controlled by PCG_TEST_MODE environment variable or --pve-mode flag in run-tests.sh
 
 services:
   # PVE mode: Real Proxmox VE container (Linux only)
@@ -23,7 +23,7 @@ services:
     environment:
       - PASSWORD=testpass123
       # Enable test mode for automated runs
-      - PA_TEST_MODE=true
+      - PCG_TEST_MODE=true
     volumes:
       # Mount the agent code for testing
       - ../:/proxmox-agent:ro
@@ -59,7 +59,7 @@ services:
     ports:
       - "2223:22"       # SSH access for debugging (different port from PVE)
     environment:
-      - PA_TEST_MODE=true
+      - PCG_TEST_MODE=true
       - DEBIAN_FRONTEND=noninteractive
     volumes:
       # Mount the agent code for testing
@@ -71,17 +71,17 @@ services:
     command: >
       bash -c "
         apt-get update &&
-        apt-get install -y systemd systemd-sysv bash curl git ssh ssh-client ssh-keygen tar coreutils sudo &&
+        apt-get install -y systemd systemd-sysv bash curl git openssh-client openssh-server tar coreutils sudo util-linux cron python3 &&
         systemctl enable systemd-logind &&
         echo 'root:testpass123' | chpasswd &&
         mkdir -p /var/run/sshd &&
-        /lib/systemd/systemd
+        exec /sbin/init
       "
     privileged: true
     security_opt:
       - seccomp:unconfined
     healthcheck:
-      test: ["CMD", "systemctl", "is-system-running"]
+      test: ["CMD", "systemctl", "is-active", "ssh"]
       interval: 5s
       timeout: 3s
       retries: 20
