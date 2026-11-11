@@ -310,8 +310,8 @@ preflight() {
       missing_cmds+=("$c")
     fi
   done
-  if [ "${PA_TEST_MODE:-false}" = "true" ]; then
-    ui_warn "PA_TEST_MODE=true -> skipping hard dependency check for systemctl."
+  if [ "${PCG_TEST_MODE:-false}" = "true" ]; then
+    ui_warn "PCG_TEST_MODE=true -> skipping hard dependency check for systemctl."
   else
     if command -v systemctl >/dev/null 2>&1; then
       ui_ok "dependency: systemctl"

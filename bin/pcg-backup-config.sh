@@ -26,16 +26,44 @@ NODE_NAME="$(hostname -s 2>/dev/null || hostname)"
 TARGET_DIR="$REPO_DIR/$NODE_NAME"
 DATE_TAG="$(date '+%Y-%m-%d %H:%M')"
 
-TG_TOKEN="${BOT_TOKEN:-}"
-TG_CHAT="${CHAT_ID:-}"
+STAGE=""
+BACKUP_PHASE="initialize"
+BACKUP_OUTCOME="unknown"
+BACKUP_COMMIT=""
+BACKUP_BRANCH_PUSH="not_confirmed"
+BACKUP_ENTRYPOINT="${PCG_BACKUP_ENTRYPOINT:-manual}"
+BACKUP_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+backup_finish() {
+  local rc=$? priority event payload
+  trap - EXIT
+  set +e
+  if [ -n "${STAGE:-}" ]; then
+    rm -rf -- "${STAGE:?}"
+  fi
+  if [ "$rc" -eq 0 ]; then
+    priority=user.info
+    event=backup_success
+  else
+    priority=user.err
+    event=backup_failed
+    echo "Backup failed for node=$NODE_NAME branch=$REPO_BRANCH phase=$BACKUP_PHASE exit=$rc."
+  fi
+  payload="{\"event\":\"$event\",\"run_id\":\"$BACKUP_RUN_ID\",\"entrypoint\":\"$(pcg_json_escape "$BACKUP_ENTRYPOINT")\",\"node\":\"$(pcg_json_escape "$NODE_NAME")\",\"branch\":\"$(pcg_json_escape "$REPO_BRANCH")\",\"commit\":\"$BACKUP_COMMIT\",\"branch_push\":\"$BACKUP_BRANCH_PUSH\",\"outcome\":\"$BACKUP_OUTCOME\",\"phase\":\"$BACKUP_PHASE\",\"exit_status\":$rc}"
+  if ! logger -t pcg-backup -p "$priority" -- "$payload"; then
+    echo "WARNING could not record backup outcome in the system journal."
+  fi
+  return "$rc"
+}
+trap backup_finish EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 send_telegram() {
-  local msg="$1"
-  [[ -z "$TG_TOKEN" || -z "$TG_CHAT" ]] && return 0
-  curl -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
-    -d chat_id="$TG_CHAT" \
-    -d text="$msg" \
-    -d parse_mode="Markdown" >/dev/null || true
+  [[ -z "${BOT_TOKEN:-}" || -z "${CHAT_ID:-}" ]] && return 0
+  if ! bash "$SCRIPT_DIR/pcg-send-telegram.sh" "$1"; then
+    echo "WARNING Telegram delivery failed; check the Telegram log."
+  fi
 }
 
 echo "=== Backup start: node=$NODE_NAME time=$DATE_TAG agent=v${AGENT_VERSION:-unknown} ==="
@@ -46,86 +74,169 @@ if [[ "$PWD" == "$REPO_DIR" || "$PWD" == "$REPO_DIR/"* ]]; then
   exit 1
 fi
 
+command -v logger >/dev/null || { echo "Missing dependency: logger (bsdutils on Proxmox/Debian)"; exit 1; }
+BACKUP_PHASE="lock"
+command -v flock >/dev/null || { echo "Missing dependency: flock (util-linux)"; exit 1; }
 mkdir -p "$REPO_DIR"
+REPO_DIR="$(cd "$REPO_DIR" && pwd -P)"
+TARGET_DIR="$REPO_DIR/$NODE_NAME"
+# The same repository lock covers timer, CLI and shutdown invocations.
+exec 200>"$REPO_DIR/.pcg-backup.lock"
+flock -w "${BACKUP_LOCK_TIMEOUT_SECONDS:-120}" 200 || {
+  echo "Backup repository is busy; lock wait expired."
+  exit 1
+}
+BACKUP_PHASE="prepare_repository"
 [ -d "$REPO_DIR/.git" ] || git -C "$REPO_DIR" init -b "$REPO_BRANCH"
-git -C "$REPO_DIR" checkout -B "$REPO_BRANCH" >/dev/null 2>&1 || true
+# Never reset an existing branch or discard another operation's work.
+if git -C "$REPO_DIR" show-ref --verify --quiet "refs/heads/$REPO_BRANCH"; then
+  git -C "$REPO_DIR" checkout "$REPO_BRANCH"
+else
+  git -C "$REPO_DIR" checkout -b "$REPO_BRANCH"
+fi
+[ ! -d "$REPO_DIR/.git/rebase-merge" ] && [ ! -d "$REPO_DIR/.git/rebase-apply" ] || {
+  echo "Resolve the interrupted Git rebase before running backup."
+  exit 1
+}
+git -C "$REPO_DIR" remote get-url origin >/dev/null || {
+  echo "Missing origin remote. Run pcg install to configure the backup repository."
+  exit 1
+}
+if [ -n "$(git -C "$REPO_DIR" diff --cached --name-only)" ]; then
+  echo "Resolve existing staged changes before running backup."
+  exit 1
+fi
 
-mkdir -p "$TARGET_DIR"/{systemd,scripts,network,etc-pve,pve-lxc,pve-firewall,root-profile,extra}
+BACKUP_PHASE="collect"
 
+# Build a complete new snapshot before replacing the previous collection.
+# BACKUP_SOURCE_ROOT permits isolated fixtures; production defaults to /.
+SOURCE_ROOT="${BACKUP_SOURCE_ROOT:-}"
+STAGE="$(mktemp -d "$REPO_DIR/.pcg-collection.XXXXXX")"
+mkdir -p "$STAGE"/{systemd,scripts,network,etc-pve,pve-lxc,pve-qemu-server,pve-firewall,root-profile,extra}
+copy_optional() {
+  local source="$1" destination="$2"
+  if [ -e "$source" ]; then
+    cp -a "$source" "$destination" || return 1
+  fi
+}
+# Refuse to replace a good snapshot when the PVE configuration mount is absent.
+[ -d "$SOURCE_ROOT/etc/pve/lxc" ] && [ -d "$SOURCE_ROOT/etc/pve/qemu-server" ] || {
+  echo "PVE configuration directories unavailable; preserving the previous snapshot."
+  exit 1
+}
+shopt -s nullglob
 echo "Collecting allowlisted configs..."
-
-find /etc/systemd/system/ -type f \( -name "*.service" -o -name "*.timer" \) \
-  ! -path "*/wanted/*" \
-  -exec cp --parents {} "$TARGET_DIR/systemd/" \; 2>/dev/null || true
-
-cp /usr/local/bin/*.sh "$TARGET_DIR/scripts/" 2>/dev/null || true
-cp /etc/network/interfaces "$TARGET_DIR/network/" 2>/dev/null || true
-
-cp /etc/pve/datacenter.cfg "$TARGET_DIR/etc-pve/" 2>/dev/null || true
-cp /etc/pve/storage.cfg "$TARGET_DIR/etc-pve/" 2>/dev/null || true
-cp /etc/pve/lxc/*.conf "$TARGET_DIR/pve-lxc/" 2>/dev/null || true
-cp /etc/pve/firewall/* "$TARGET_DIR/pve-firewall/" 2>/dev/null || true
-
-cp /root/.bashrc "$TARGET_DIR/root-profile/" 2>/dev/null || true
-cp /root/.zshrc "$TARGET_DIR/root-profile/" 2>/dev/null || true
-cp /root/.profile "$TARGET_DIR/root-profile/" 2>/dev/null || true
-crontab -l -u root > "$TARGET_DIR/root-profile/crontab.txt" 2>/dev/null || true
-
+find "$SOURCE_ROOT/etc/systemd/system" -type f \( -name '*.service' -o -name '*.timer' \) -print0 > "$STAGE/units.list"
+while IFS= read -r -d '' file; do
+  relative="${file#"$SOURCE_ROOT"}"
+  mkdir -p "$STAGE/systemd/$(dirname "$relative")"
+  cp -a "$file" "$STAGE/systemd/$relative"
+done < "$STAGE/units.list"
+rm "$STAGE/units.list"
+for name in pcg pcg-agent-lib.sh pcg-doctor.sh pcg-backup-config.sh pcg-boot-notify.sh pcg-send-telegram.sh pcg-send-webhook.sh pcg-shutdown-proxmox.sh; do
+  copy_optional "$SOURCE_ROOT/usr/local/bin/$name" "$STAGE/scripts/"
+done
+copy_optional "$SOURCE_ROOT/etc/network/interfaces" "$STAGE/network/"
+for name in datacenter.cfg storage.cfg; do
+  copy_optional "$SOURCE_ROOT/etc/pve/$name" "$STAGE/etc-pve/"
+done
+for file in "$SOURCE_ROOT"/etc/pve/lxc/*.conf; do cp -a "$file" "$STAGE/pve-lxc/"; done
+for file in "$SOURCE_ROOT"/etc/pve/qemu-server/*.conf; do cp -a "$file" "$STAGE/pve-qemu-server/"; done
+for file in "$SOURCE_ROOT"/etc/pve/firewall/*; do cp -a "$file" "$STAGE/pve-firewall/"; done
+for name in .bashrc .zshrc .profile; do copy_optional "$SOURCE_ROOT/root/$name" "$STAGE/root-profile/"; done
+if [ -z "$SOURCE_ROOT" ]; then
+  command -v crontab >/dev/null || { echo "Missing dependency: crontab (cron)"; exit 1; }
+  crontab -l -u root > "$STAGE/root-profile/crontab.txt" 2>"$STAGE/cron-error" || {
+    grep -qi 'no crontab' "$STAGE/cron-error" || { echo "Cannot read root crontab"; exit 1; }
+  }
+  rm -f "$STAGE/cron-error"
+fi
 if [ -n "${BACKUP_INCLUDE_EXTRA:-}" ]; then
   IFS=',' read -r -a extra_paths <<< "$BACKUP_INCLUDE_EXTRA"
   for p in "${extra_paths[@]}"; do
     p="$(echo "$p" | xargs)"
     [ -n "$p" ] || continue
-    if [ -e "$p" ]; then
-      cp -a --parents "$p" "$TARGET_DIR/extra/" 2>/dev/null || true
+    [[ "$p" = /* ]] || { echo "Extra backup paths must be absolute."; exit 1; }
+    if [ -e "$SOURCE_ROOT$p" ]; then
+      (cd "${SOURCE_ROOT:-/}" && cp -a --parents ".${p}" "$STAGE/extra/")
     fi
   done
 fi
-
+# Preserve unrelated node files while refreshing every owned collection family.
+mkdir -p "$TARGET_DIR"
+for family in systemd scripts network etc-pve pve-lxc pve-qemu-server pve-firewall root-profile extra; do
+  rm -rf -- "${TARGET_DIR:?}/${family:?}"
+  mv "$STAGE/$family" "$TARGET_DIR/$family"
+done
 cd "$REPO_DIR"
-git add -A
+git add -A -- "$NODE_NAME"
 
 if git diff --cached --quiet; then
-  echo "No changes detected."
-  pcg_send_webhook "backup" "no_changes" "No backup changes" "No files changed for node $NODE_NAME." || true
+  BACKUP_OUTCOME="unchanged"
+  BACKUP_COMMIT="$(git rev-parse --verify HEAD)"
+  BACKUP_PHASE="synchronize"
+  echo "No configuration changes detected; synchronizing unpublished commits."
+  pcg_git_network pull --rebase origin "$REPO_BRANCH" || {
+    # An empty remote has no branch to pull yet; all other failures are fatal.
+    refs="$(pcg_git_network ls-remote --heads origin "refs/heads/$REPO_BRANCH")" || exit 1
+    [ -z "$refs" ] || exit 1
+  }
+  BACKUP_PHASE="push_branch"
+  pcg_git_network push origin "$REPO_BRANCH"
+  BACKUP_COMMIT="$(git rev-parse HEAD)"
+  BACKUP_BRANCH_PUSH="confirmed"
+  BACKUP_PHASE="complete"
+  pcg_send_webhook "backup" "no_changes" "Backup synchronized" "No files changed for node $NODE_NAME; local commits pushed." || true
   exit 0
 fi
 
 FULL_DIFF="$(git diff --cached --stat || true)"
-CRITICAL="$(git diff --cached --name-only | grep -E "storage.cfg|lxc/|qemu-server/" || true)"
+CRITICAL="$(git diff --cached --name-only | grep -E "storage.cfg|pve-lxc/|pve-qemu-server/" || true)"
 CHANGES="$(git diff --cached --name-only | wc -l | xargs)"
 COMMIT_MSG="[$NODE_NAME] $CHANGES files changed - $DATE_TAG (agent v${AGENT_VERSION:-unknown})"
 
 echo "=== Full diff ==="
 echo "$FULL_DIFF"
 
+BACKUP_PHASE="commit"
+BACKUP_OUTCOME="changed"
 git commit -m "$COMMIT_MSG"
-if git -C "$REPO_DIR" remote get-url origin >/dev/null 2>&1; then
-  if git -C "$REPO_DIR" ls-remote --exit-code --heads origin "$REPO_BRANCH" >/dev/null 2>&1; then
-    git pull --rebase origin "$REPO_BRANCH"
-  else
-    echo "Remote branch origin/$REPO_BRANCH does not exist yet; skipping rebase pull."
-  fi
+BACKUP_COMMIT="$(git rev-parse HEAD)"
+BACKUP_PHASE="synchronize"
+remote_refs="$(pcg_git_network ls-remote --heads origin "refs/heads/$REPO_BRANCH")"
+if [ -n "$remote_refs" ]; then
+    pcg_git_network pull --rebase origin "$REPO_BRANCH"
+else
+  echo "Remote branch does not exist yet; skipping rebase pull."
 fi
-git push origin "$REPO_BRANCH"
+BACKUP_PHASE="push_branch"
+pcg_git_network push origin "$REPO_BRANCH"
+BACKUP_COMMIT="$(git rev-parse HEAD)"
+BACKUP_BRANCH_PUSH="confirmed"
+BACKUP_PHASE="push_tag"
 
 TAG_BASE="$NODE_NAME-backup-$(date '+%Y-%m-%d-%H%M')"
 TAG_NAME="$TAG_BASE"
 tag_suffix=1
-while git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null 2>&1 || \
-      git ls-remote --exit-code --tags origin "refs/tags/$TAG_NAME" >/dev/null 2>&1; do
+while true; do
+  tag_refs="$(pcg_git_network ls-remote --tags origin "refs/tags/$TAG_NAME")"
+  if ! git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null && [ -z "$tag_refs" ]; then
+    break
+  fi
   TAG_NAME="${TAG_BASE}-${tag_suffix}"
   tag_suffix=$((tag_suffix + 1))
 done
 git tag "$TAG_NAME"
-git push origin "$TAG_NAME"
+pcg_git_network push origin "$TAG_NAME"
 
 if [[ -n "$CRITICAL" ]]; then
-  MSG="*Proxmox Critical Change*\nNode: \`$NODE_NAME\`\nTime: $DATE_TAG\n\nChanges:\n\`\`\`\n$CRITICAL\n\`\`\`"
+  MSG="Proxmox critical change on $NODE_NAME at $DATE_TAG ($CHANGES files)."
   send_telegram "$MSG"
 fi
 
 pcg_send_webhook "backup" "success" "Backup pushed" \
   "Committed $CHANGES changed file(s) on node $NODE_NAME to branch $REPO_BRANCH." || true
 
+BACKUP_PHASE="complete"
 echo "Backup complete for $NODE_NAME (agent v${AGENT_VERSION:-unknown})."

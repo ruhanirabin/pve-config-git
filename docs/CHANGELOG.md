@@ -1,3 +1,19 @@
+## 0.8.1
+
+- improve: publish versioned upgrade tags automatically when VERSION changes on main, after validation and regression checks.
+
+- fix: include VM definitions and remove deleted VM, LXC, firewall, unit and selected extra files from new backups.
+- fix: serialize timer, manual and shutdown backups and retry unpublished commits after a failed push.
+- fix: preserve legacy settings, migrate canonical service names and restore managed files when installation or upgrade validation fails.
+- fix: support installed reinstall and resume through versioned local source payloads, including Save and Exit recovery.
+- fix: complete systemd pre-shutdown backups, continue after forced guest stops and preserve the requested reboot or power-off action.
+- fix: check unattended repository read and dry-run push access and bound Git network operations.
+- improve: report SSH, HTTPS, network, repository and push failures with credential-safe guidance.
+- improve: record backup success and failure in journalctl with the entry point, commit, push state and failure phase while retaining file logs.
+- fix: rotate active logs, expire the dated shutdown log family and bound backup Telegram requests.
+- fix: keep invalid menu warnings out of captured answers and resolve Proxmox logger dependencies through bsdutils.
+- removed: automatic collection of unrelated /usr/local/bin scripts. Breaking change: select additional scripts through BACKUP_INCLUDE_EXTRA and review their contents for credentials.
+
 ## 0.7.28
 
 - fix: allow backups to start without a missing log-rotation command error.

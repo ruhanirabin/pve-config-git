@@ -14,9 +14,9 @@ cat > /tmp/test-install.env <<'EOF'
 REPO_DIR=/root/pve-config
 REPO_BRANCH=main
 GIT_REMOTE_URL=/tmp/fake-remote.git
-GIT_COMMIT_NAME=Test User
+GIT_COMMIT_NAME='Test User'
 GIT_COMMIT_EMAIL=test@example.com
-PA_LOG_RETENTION_DAYS=7
+PCG_LOG_RETENTION_DAYS=7
 BOT_TOKEN=PLACEHOLDER
 CHAT_ID=PLACEHOLDER
 WEBHOOK_ENABLED=false
@@ -32,7 +32,7 @@ fi
 
 info "Testing binary installation (dry-run)..."
 # In test mode, we can check if install would work
-PA_TEST_MODE=true ./bin/pcg preinstall-report | grep -q "blockers\|warnings" || true
+PCG_TEST_MODE=true ./bin/pcg preinstall-report | grep -q "blockers\|warnings" || true
 
 info "Simulating install steps..."
 
@@ -53,7 +53,7 @@ if [[ -f systemd/pcg-backup-config.service ]]; then
   cp systemd/* /tmp/pcg-test-install/etc/systemd/system/ 2>/dev/null || true
   info "Unit file staging: OK"
 else
-  warn "No systemd unit files found (may be expected in container)"
+  fail "No systemd unit files found"
 fi
 
 # Test 3: Validate script syntax

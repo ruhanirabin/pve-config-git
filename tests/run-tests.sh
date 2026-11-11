@@ -125,7 +125,7 @@ copy_agent_to_container() {
   local tar_file
   tar_file=$(mktemp)
 
-  (cd "$ROOT_DIR" && tar -czf "$tar_file" --exclude='.git' --exclude='tests' .)
+  (cd "$ROOT_DIR" && tar -czf "$tar_file" --exclude='.git' .)
 
   # Copy and extract in container
   docker-compose -f "$COMPOSE_FILE" cp "$tar_file" "$TEST_SERVICE:/tmp/pcg.tar.gz"
@@ -134,7 +134,7 @@ copy_agent_to_container() {
     cd /pcg &&
     tar -xzf /tmp/pcg.tar.gz &&
     rm /tmp/pcg.tar.gz &&
-    chmod +x bin/*.sh install.sh 2>/dev/null || true
+    chmod +x bin/pcg bin/*.sh install.sh
   '
 
   rm -f "$tar_file"
@@ -150,9 +150,9 @@ run_test_in_container() {
 
   if docker-compose -f "$COMPOSE_FILE" exec -T "$TEST_SERVICE" bash -c "
     cd /pcg &&
-    export PA_TEST_MODE=true &&
+    export PCG_TEST_MODE=true &&
     export GIT_REMOTE_URL='ssh://git@git-test/srv/git/pve-config.git' &&
-    export PA_LOG_RETENTION_DAYS=7 &&
+    export PCG_LOG_RETENTION_DAYS=7 &&
     $test_script
   "; then
     info "✓ Test passed: $test_name"
@@ -227,7 +227,7 @@ main() {
   fi
 
   # Test 5: Shutdown script (dry-run)
-  if ! run_test_in_container "Shutdown Dry-Run" "bash tests/test-shutdown.sh"; then
+  if ! run_test_in_container "Shutdown Dry-Run" "bash tests/test-shutdown.sh && bash tests/test-shutdown-behavior.sh"; then
     ((failed++)) || true
   fi
 
@@ -356,9 +356,9 @@ case "${1:-}" in
     ;;
   --shell)
     # Determine which service is running
-    if docker-compose -f "$COMPOSE_FILE" ps | grep -q "pcg-test-pve"; then
+    if docker-compose -f "$COMPOSE_FILE" ps | grep -q "pa-test-pve"; then
       docker-compose -f "$COMPOSE_FILE" exec pve-test bash
-    elif docker-compose -f "$COMPOSE_FILE" ps | grep -q "pcg-test-ubuntu"; then
+    elif docker-compose -f "$COMPOSE_FILE" ps | grep -q "pa-test-ubuntu"; then
       docker-compose -f "$COMPOSE_FILE" exec ubuntu-test bash
     else
       error "No test container is running. Start tests first or use --keep flag."

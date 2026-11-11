@@ -68,7 +68,8 @@ fi
 # Shutdown-state detection (critical) - Prevents re-entry during shutdown
 # ============================================================
 
-if systemctl is-system-running 2>/dev/null | grep -q "stopping"; then
+system_state="$(systemctl is-system-running 2>/dev/null || true)"
+if [ "$system_state" = "stopping" ] && [ "$CALLER" != "systemd" ]; then
   log "Abort: system already in stopping state"
   exit 1
 fi
@@ -120,7 +121,7 @@ logger "Proxmox $NODE_NAME shutdown initiated via $CALLER"
 /usr/local/bin/pcg-send-telegram.sh "Proxmox $NODE_NAME shutdown started at <b>$START_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
 pcg_send_webhook "shutdown" "started" "Shutdown sequence started" "Node $NODE_NAME started graceful shutdown." || true
 
-if /usr/local/bin/pcg-backup-config.sh; then
+if PCG_BACKUP_ENTRYPOINT=shutdown /usr/local/bin/pcg-backup-config.sh; then
   log "Pre-shutdown backup completed."
 else
   log "WARNING pre-shutdown backup failed; continuing shutdown."
@@ -132,7 +133,7 @@ for vmid in $(qm list | awk 'NR>1 {print $1}'); do
   if [ "$STATUS" = "running" ]; then
     log "Shutting down VM $vmid"
     qm shutdown "$vmid" --timeout 90 >> "$LOG_FILE" 2>&1 || true
-    wait_for_shutdown "vm" "$vmid"
+    wait_for_shutdown "vm" "$vmid" || log "WARNING forced-stop path used for VM $vmid"
   else
     log "VM $vmid already stopped"
   fi
@@ -144,7 +145,7 @@ for lxcid in $(pct list | awk 'NR>1 {print $1}'); do
   if [ "$STATUS" = "running" ]; then
     log "Shutting down LXC $lxcid"
     pct shutdown "$lxcid" >> "$LOG_FILE" 2>&1 || true
-    wait_for_shutdown "lxc" "$lxcid"
+    wait_for_shutdown "lxc" "$lxcid" || log "WARNING forced-stop path used for LXC $lxcid"
   else
     log "LXC $lxcid already stopped"
   fi
@@ -155,6 +156,11 @@ log "Sending final shutdown notification"
 
 /usr/local/bin/pcg-send-telegram.sh "Proxmox host <b>$NODE_NAME</b> shutting down at <b>$FINAL_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
 pcg_send_webhook "shutdown" "success" "Shutdown sequence complete" "Node $NODE_NAME is shutting down now." || true
+
+if [ "$CALLER" = "systemd" ]; then
+  log "Guest shutdown complete; continuing the host action already queued by systemd"
+  exit 0
+fi
 
 sleep 3
 

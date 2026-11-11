@@ -7,6 +7,94 @@ PCG_ENV_FILE_LEGACY="/root/.backup-config.env"
 PCG_VERSION_FILE="/usr/local/bin/pcg-agent-version"
 PCG_VERSION_FILE_LEGACY="/usr/local/bin/proxmox-agent-version"
 
+# Keep unattended operations bounded and never expose raw credential-bearing errors.
+pcg_network_timeout() {
+  local value="${GIT_TIMEOUT_SECONDS:-60}"
+  [[ "$value" =~ ^[1-9][0-9]{0,3}$ ]] && [ "$value" -le 3600 ] || {
+    echo 'GIT_TIMEOUT_SECONDS must be between 1 and 3600.' >&2
+    return 1
+  }
+  printf '%s' "$value"
+}
+
+pcg_git_error() {
+  local code="$1" file="$2"
+  PCG_GIT_ERROR="Git operation failed. Check the repository URL, credentials and network, then run pcg doctor."
+  if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
+    PCG_GIT_ERROR="Git operation timed out. Check DNS, network access and credential helpers; adjust GIT_TIMEOUT_SECONDS if needed."
+  elif grep -Eqi 'REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed' "$file"; then
+    PCG_GIT_ERROR="SSH host verification failed. Verify GitHub's host key and root's known_hosts entry before retrying."
+  elif grep -Eqi 'Permission denied \(publickey\)|no supported authentication methods' "$file"; then
+    PCG_GIT_ERROR="SSH authentication failed. Add this node's root public key to GitHub and allow unattended use of the matching private key."
+  elif grep -Eqi 'Could not resolve|Name or service not known|Connection timed out|Connection refused|Network is unreachable|Failed to connect|Could not read from remote repository' "$file"; then
+    PCG_GIT_ERROR="Cannot connect to the Git repository. Check DNS, firewall, GitHub availability and SSH access from this node."
+  elif grep -Eqi 'Repository not found|does not appear to be a git repository|not found' "$file"; then
+    PCG_GIT_ERROR="Repository not found or not accessible. Check OWNER/REPO, that the repository exists, and that these credentials can access it."
+  elif grep -Eqi 'Authentication failed|could not read Username|could not read Password|terminal prompts disabled|Invalid username or (password|token)|401' "$file"; then
+    PCG_GIT_ERROR="HTTPS authentication failed or requires interaction. Configure a root credential helper with unattended credentials that can write this repository, or use SSH."
+  elif grep -Eqi 'write access.*not granted|permission.*denied.*to|read.only|not allowed to push' "$file"; then
+    PCG_GIT_ERROR="Repository write access denied. Grant this key or token write access and check organization authorization and repository rules."
+  elif grep -Eqi '403|permission.*denied|access denied' "$file"; then
+    PCG_GIT_ERROR="Repository access denied. Check key or token permissions, organization authorization and repository rules."
+  elif grep -Eqi 'non-fast-forward|fetch first|rejected|protected branch|GH006|GH013' "$file"; then
+    PCG_GIT_ERROR="Push rejected. Check branch protection, repository rules and remote changes; resolve conflicts before retrying the backup."
+  elif grep -Eqi 'conflict|cannot rebase|unstaged changes' "$file"; then
+    PCG_GIT_ERROR="Git synchronization needs attention. Resolve working-tree changes or rebase conflicts before retrying the backup."
+  fi
+}
+
+pcg_git_network() {
+  local seconds errors rc=0
+  PCG_GIT_ERROR=""
+  seconds="$(pcg_network_timeout)" || {
+    PCG_GIT_ERROR="GIT_TIMEOUT_SECONDS must be between 1 and 3600."
+    return 1
+  }
+  command -v timeout >/dev/null || {
+    PCG_GIT_ERROR="Missing dependency: timeout (coreutils). Install it before running PCG network operations."
+    echo "$PCG_GIT_ERROR" >&2
+    return 1
+  }
+  errors="$(mktemp)" || return 1
+  # Preserve root's SSH config, but disable passwords/passphrases and GUI prompts.
+  # No raw remote output reaches logs: Git can echo embedded credentials in URLs.
+  if LC_ALL=C GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never \
+    GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false SSH_ASKPASS_REQUIRE=never \
+    GIT_SSH_COMMAND='ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ConnectionAttempts=1' \
+    timeout --kill-after=5 "$seconds" git -c credential.interactive=false "$@" </dev/null 2>"$errors"; then
+    rm -f "$errors"
+    return 0
+  else
+    rc=$?
+  fi
+  pcg_git_error "$rc" "$errors"
+  rm -f "$errors"
+  echo "$PCG_GIT_ERROR" >&2
+  return "$rc"
+}
+
+# Read-only write-endpoint probe, including repositories with no commits yet.
+# --dry-run does not execute server receive hooks or guarantee branch-rule acceptance.
+pcg_git_check_push() (
+  local repo="$1" work oid objects
+  work="$(mktemp -d)" || exit 1
+  trap 'rm -rf "$work"' EXIT
+  objects="$(git -C "$repo" rev-parse --git-path objects)" || exit 1
+  [[ "$objects" = /* ]] || objects="$(cd "$repo" && pwd)/$objects"
+  mkdir "$work/objects" || exit 1
+  # Use the real repository's transport/credential config without adding objects,
+  # commits, refs, index entries or remote branches to the backup repository.
+  export GIT_OBJECT_DIRECTORY="$work/objects"
+  export GIT_ALTERNATE_OBJECT_DIRECTORIES="$objects"
+  oid="$(printf '' | git -C "$repo" hash-object -t tree -w --stdin)" || exit 1
+  oid="$(printf 'PCG access check (dry run only)\n' | \
+    GIT_AUTHOR_NAME=PCG GIT_AUTHOR_EMAIL=pcg@localhost \
+    GIT_COMMITTER_NAME=PCG GIT_COMMITTER_EMAIL=pcg@localhost \
+    git -C "$repo" -c commit.gpgSign=false commit-tree "$oid")" || exit 1
+  pcg_git_network -C "$repo" push --dry-run --no-verify --porcelain origin \
+    "$oid:refs/heads/pcg-access-check-${work##*.}" > /dev/null
+)
+
 pcg_now_utc() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
@@ -90,6 +178,8 @@ pcg_load_version() {
 
 pcg_load_env() {
   local source_rc
+  local had_errexit=0
+  [[ $- == *e* ]] && had_errexit=1
   local source_err_file
   pcg_source_env_file() {
     local file="$1"
@@ -99,7 +189,7 @@ pcg_load_env() {
     set +e
     source "$file" 2>"$source_err_file"
     source_rc=$?
-    set -e
+    if [ "$had_errexit" -eq 1 ]; then set -e; else set +e; fi
     if [ "$source_rc" -ne 0 ]; then
       echo "[!] Warning: failed to fully parse $file (rc=$source_rc). Continue with loaded values and fix invalid lines." >&2
       if [ -s "$source_err_file" ]; then
@@ -145,7 +235,18 @@ pcg_rotate_log_family() {
   log_base="$(basename "$log_file")"
 
   mkdir -p "$log_dir"
-  find "$log_dir" -type f -name "${log_base}*" -mtime +"$retention_days" -exec rm -f {} \; 2>/dev/null || true
+  # Daily shutdown filenames share one retention family.
+  if [[ "$log_base" == shutdown_????-??-??.log ]]; then
+    log_base="shutdown_"
+  elif [ -f "$log_file" ]; then
+    local today modified
+    today="$(date +%F)"
+    modified="$(date -r "$log_file" +%F)"
+    if [ "$modified" != "$today" ]; then
+      mv "$log_file" "$log_file.$modified.$(date +%s).$$" || return 1
+    fi
+  fi
+  find "$log_dir" -maxdepth 1 -type f -name "${log_base}*" -mtime +"$retention_days" -exec rm -f {} \; 2>/dev/null || true
 }
 
 pcg_event_enabled() {
