@@ -52,6 +52,35 @@ This file defines operating rules for humans and automation (agents/bots) workin
   - Ensure runtime writer in `bin/pcg` (`write_runtime_version`) is unchanged and still emits the new version into `/usr/local/bin/pcg-agent-version`.
   - Script headers should remain agnostic (`runtime sourced from pcg-agent-version`) and must not hardcode static version numbers.
 
+## SilverBullet Project Record
+
+After meaningful workstation maintenance, build, recovery, bootloader, desktop
+configuration, or project-documentation milestones, follow the canonical
+[`silverbullet-project-docs` skill](/home/rabin/.agents/skills/silverbullet-project-docs/SKILL.md).
+Its MCP workflow is the primary access method; local paths below do not override
+that priority.
+
+Use the configured SilverBullet MCP connection to the live Homelab space first.
+Read the space's `AGENTS.md` and relevant notes through MCP, then update:
+
+- `Projects/PVE Config Git`
+- `Journal/Daily/YYYY-MM-DD`
+
+Follow the skill's revision-safe preview/write/read-back procedure. Preserve
+frontmatter and `[[Wiki Links]]`, and verify both the project page and dated
+backlink after editing. Follow its generated-content protections, writing style,
+evidence requirements, and page structure.
+
+Only if MCP is unavailable or fails, report the access failure and use the
+authorized local-folder fallback under `/home/rabin/remote-sync/silverbullet/`.
+Read its `AGENTS.md` before editing the corresponding `.md` files. If an MCP
+write has an uncertain outcome, establish what was saved before applying a
+local fallback; do not blindly overwrite or duplicate updates. Preserve
+unrelated changes and establish how live and local copies relate before mixing
+access methods. The local space is synchronized storage, not a Git checkout.
+Report local save/read-back separately from live MCP verification and remote
+synchronization; never infer that a local save has reached the live space.
+
 ## Naming Standard
 
 - Canonical managed artifacts must use `pcg-*` naming.
