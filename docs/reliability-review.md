@@ -1,8 +1,8 @@
 # Reliability review fixes
 
-Work branch: `fix/backup-lifecycle-reliability`. Prepared version: 0.7.30.
-All 19 supplied findings have implementation changes. This is not a target-host
-release acceptance record.
+Work branch: `fix/backup-lifecycle-reliability`. Prepared version: 0.8.1.
+All 19 supplied findings have implementation changes. The matrix links each
+change to its regression coverage. Real Proxmox results are recorded below.
 
 | Finding | Change | Verification |
 | --- | --- | --- |
@@ -56,8 +56,19 @@ release acceptance record.
   network errors, host-key errors, timeout termination, untouched local/remote
   state and GitHub's successful SSH greeting with exit status 1.
 - Dry-run checks do not run receive hooks or prove backup-branch rules will
-  accept a real push. Live GitHub permissions remain unverified. GitLab support
-  is deferred.
+  accept a real push. Live GitHub write access was verified during the VM
+  acceptance run below. GitLab support is deferred.
+
+## Real Proxmox acceptance
+
+The local Proxmox VE 9.2.2 VM passed installation, live GitHub backup/retry,
+Save/Resume, legacy migration, upgrade failure rollback, real guest shutdown
+and host reboot checks on 2026-11-11. A shutdown guard defect found during that
+run was corrected in `b3f61e0`. Journal outcomes were added in `e713b1e` and
+verified for successful and failed pushes, CLI runs and shutdown backups.
+
+See [the acceptance record](proxmox-acceptance.md) for the result matrix and
+remaining release and notification checks.
 
 ## Validation boundary
 
@@ -65,6 +76,5 @@ Local isolated tests use real Git and local bare remotes, synthetic PVE files,
 mock notifications and mock guest/systemctl commands. The Ubuntu smoke uses
 PCG_TEST_MODE, so it does not establish real systemd or Proxmox acceptance.
 
-Before release, follow [the local Proxmox acceptance runbook](proxmox-acceptance.md)
-to run install, doctor, backup and upgrade/rollback on the disposable VM. Verify guest lifecycle behavior there. No host activation,
-remote push, tag or release is part of this branch preparation.
+The VM acceptance above used the installed runtime and real GitHub backup
+pushes. Release publication and production-node activation remain separate steps.

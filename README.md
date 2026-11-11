@@ -128,7 +128,7 @@ For a notification system that accepts PCG webhook events, prepare:
 ### 4. Host dependencies
 
 - Proxmox VE host with root shell access
-- `bash`, `curl`, `git`, `ssh`, `ssh-keygen`, `tar`, `find`, `install`, `flock`, `crontab` and `timeout`
+- `bash`, `curl`, `git`, `ssh`, `ssh-keygen`, `tar`, `find`, `install`, `flock`, `crontab`, `timeout` and `logger`
 - Proxmox commands `qm` and `pct` for guest operations
 - `systemctl` (required for live install; skipped only in `PCG_TEST_MODE=true`)
 - Internet access from your Proxmox node to reach GitHub
@@ -316,6 +316,25 @@ VM and LXC definitions, firewall settings and custom systemd units are refreshed
 - Duplicate shutdown runs are blocked with a lock file guard.
 - Shutdown aborts safely when host uptime is under 5 minutes (boot protection).
 - `pcg-boot-notify.service` can send boot notifications.
+
+### Backup results in the journal
+
+Timer, CLI and shutdown backups record their final result under the `pcg-backup` journal tag. A `backup_success` event confirms that the branch push completed. A `backup_failed` event includes the failure phase and exit status. Each event also records the node, branch, commit and entry point.
+
+View all outcomes or failures only:
+
+```bash
+journalctl -t pcg-backup --since today --no-pager
+journalctl -t pcg-backup -p err --since today --no-pager
+```
+
+For the detailed output of systemd backup runs:
+
+```bash
+journalctl -u pcg-backup-config.service -n 100 --no-pager
+```
+
+The script also keeps its file log at `BACKUP_LOG_FILE`, which defaults to `/var/log/pcg-backup-config.log`. If a push fails, check the journal's `phase` and `branch_push` fields. A tag failure can occur after the branch commit has already reached GitHub.
 
 ## Upgrades
 
