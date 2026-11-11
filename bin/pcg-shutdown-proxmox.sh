@@ -68,7 +68,8 @@ fi
 # Shutdown-state detection (critical) - Prevents re-entry during shutdown
 # ============================================================
 
-if systemctl is-system-running 2>/dev/null | grep -q "stopping"; then
+system_state="$(systemctl is-system-running 2>/dev/null || true)"
+if [ "$system_state" = "stopping" ]; then
   log "Abort: system already in stopping state"
   exit 1
 fi
@@ -132,7 +133,7 @@ for vmid in $(qm list | awk 'NR>1 {print $1}'); do
   if [ "$STATUS" = "running" ]; then
     log "Shutting down VM $vmid"
     qm shutdown "$vmid" --timeout 90 >> "$LOG_FILE" 2>&1 || true
-    wait_for_shutdown "vm" "$vmid"
+    wait_for_shutdown "vm" "$vmid" || log "WARNING forced-stop path used for VM $vmid"
   else
     log "VM $vmid already stopped"
   fi
@@ -144,7 +145,7 @@ for lxcid in $(pct list | awk 'NR>1 {print $1}'); do
   if [ "$STATUS" = "running" ]; then
     log "Shutting down LXC $lxcid"
     pct shutdown "$lxcid" >> "$LOG_FILE" 2>&1 || true
-    wait_for_shutdown "lxc" "$lxcid"
+    wait_for_shutdown "lxc" "$lxcid" || log "WARNING forced-stop path used for LXC $lxcid"
   else
     log "LXC $lxcid already stopped"
   fi

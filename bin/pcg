@@ -19,6 +19,7 @@ PCG_ENV_EXAMPLE_SOURCE="$REPO_ROOT/env/pcg-agent.env.example"
 PCG_RUNTIME_VERSION_FILE="$PCG_BIN_TARGET/pcg-agent-version"
 PCG_RUNTIME_VERSION_LEGACY="$PCG_BIN_TARGET/proxmox-agent-version"
 PCG_BACKUP_DIR_BASE="/root/pcg-backups"
+PCG_SOURCE_CACHE_ROOT="/usr/local/share/pcg/sources"
 PCG_UPGRADE_LOG="/var/log/pcg-upgrade.log"
 PCG_SSH_PRIVATE_KEY="/root/.ssh/id_ed25519"
 PCG_SSH_PUBLIC_KEY="/root/.ssh/id_ed25519.pub"
@@ -29,7 +30,7 @@ ICON_Q="${PCG_UI_ICON_Q}"
 
 ui_info() { pcg_ui_info "$*"; }
 ui_ok() { pcg_ui_ok "$*"; }
-ui_warn() { pcg_ui_warn "$*"; }
+ui_warn() { pcg_ui_warn "$*" >&2; }
 ui_err() { pcg_ui_err "$*"; }
 
 print_cli_divider() {
@@ -75,10 +76,10 @@ PCG_CANONICAL_BIN_FILES=(
 )
 
 PCG_CANONICAL_UNIT_FILES=(
-  "pa-backup-config.service"
-  "pa-backup-config.timer"
-  "pa-boot-notify.service"
-  "pa-shutdown-proxmox.service"
+  "pcg-backup-config.service"
+  "pcg-backup-config.timer"
+  "pcg-boot-notify.service"
+  "pcg-shutdown-proxmox.service"
 )
 
 PCG_LEGACY_BIN_FILES=(
@@ -101,6 +102,10 @@ PCG_LEGACY_BIN_FILES=(
 )
 
 PCG_LEGACY_UNIT_FILES=(
+  "pa-backup-config.service"
+  "pa-backup-config.timer"
+  "pa-boot-notify.service"
+  "pa-shutdown-proxmox.service"
   "backup-config.service"
   "backup-config.timer"
   "proxmox-bootup-telegram.service"
@@ -301,6 +306,10 @@ map_cmds_to_packages() {
     case "$pkg_manager:$cmd" in
       apt:ssh|apt:ssh-keygen) pkg="openssh-client" ;;
       apt:systemctl) pkg="systemd" ;;
+      *:flock) pkg="util-linux" ;;
+      *:find) pkg="findutils" ;;
+      *:install) pkg="coreutils" ;;
+      apt:crontab) pkg="cron" ;;
       dnf:ssh|dnf:ssh-keygen|yum:ssh|yum:ssh-keygen|zypper:ssh|zypper:ssh-keygen|pacman:ssh|pacman:ssh-keygen|apk:ssh|apk:ssh-keygen) pkg="openssh" ;;
       dnf:systemctl|yum:systemctl|zypper:systemctl|pacman:systemctl|apk:systemctl) pkg="systemd" ;;
     esac
@@ -366,7 +375,7 @@ preflight_checks() {
   local missing=0
   local c
   local -a missing_cmds=()
-  for c in bash git curl ssh ssh-keygen; do
+  for c in bash git curl ssh ssh-keygen flock tar find install crontab; do
     if command -v "$c" >/dev/null 2>&1; then
       ui_ok "dependency: $c"
     else
@@ -385,6 +394,14 @@ preflight_checks() {
       missing=1
       missing_cmds+=("systemctl")
     fi
+  fi
+  if ! is_test_mode; then
+    for c in qm pct; do
+      command -v "$c" >/dev/null || {
+        ui_err "Missing Proxmox command: $c. Run installation on a Proxmox VE host."
+        return 1
+      }
+    done
   fi
   if [ "$missing" -ne 0 ]; then
     install_missing_dependencies "${missing_cmds[@]}" || return 1
@@ -678,9 +695,7 @@ validate_github_ssh() {
     return 0
   fi
   local output
-  set +e
-  output="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -T git@github.com 2>&1)"
-  set -e
+  output="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -T git@github.com 2>&1 || true)"
   echo "$output" | grep -qi "successfully authenticated"
 }
 
@@ -946,7 +961,7 @@ collect_preinstall_report_data() {
   PRE_CANONICAL_UNITS_PRESENT=()
 
   local dep
-  for dep in bash git curl ssh ssh-keygen; do
+  for dep in bash git curl ssh ssh-keygen flock tar find install crontab; do
     if command -v "$dep" >/dev/null 2>&1; then
       PRE_DEPS_OK+=("$dep")
     else
@@ -1303,8 +1318,8 @@ restore_from_backup() {
 
 migrate_env_file() {
   if [ ! -f "$PCG_ENV_TARGET" ] && [ -f "$PCG_ENV_LEGACY" ]; then
-    cp -a "$PCG_ENV_LEGACY" "$PCG_ENV_TARGET"
-    chmod 600 "$PCG_ENV_TARGET"
+    cp -a "$PCG_ENV_LEGACY" "$PCG_ENV_TARGET" || return 1
+    chmod 600 "$PCG_ENV_TARGET" || return 1
   fi
 }
 
@@ -1353,73 +1368,74 @@ perform_uninstall() {
 }
 
 install_canonical_files_from_repo() {
-  local f
-  local bin_files=(
-    "pcg-doctor.sh"
-    "pcg-backup-config.sh"
-    "pcg-boot-notify.sh"
-    "pcg-send-telegram.sh"
-    "pcg-send-webhook.sh"
-    "pcg-shutdown-proxmox.sh"
-    "pcg-agent-lib.sh"
-    "pcg"
-  )
-  local unit_files=(
-    "pcg-backup-config.service"
-    "pcg-backup-config.timer"
-    "pcg-boot-notify.service"
-    "pcg-shutdown-proxmox.service"
-  )
-
-  mkdir -p "$PCG_BIN_TARGET" "$PCG_SYSTEMD_TARGET"
-
-  for f in "${bin_files[@]}"; do
-    install -m 755 "$REPO_ROOT/bin/$f" "$PCG_BIN_TARGET/$f"
-  done
-  for f in "${unit_files[@]}"; do
-    install -m 644 "$REPO_ROOT/systemd/$f" "$PCG_SYSTEMD_TARGET/$f"
-  done
-  if [ ! -f "$PCG_ENV_TARGET" ] && [ -f "$PCG_ENV_EXAMPLE_SOURCE" ]; then
-    install -m 600 "$PCG_ENV_EXAMPLE_SOURCE" "$PCG_ENV_TARGET"
-  fi
+  install_canonical_files_from_source_dir "$REPO_ROOT"
 }
 
 install_canonical_files_from_source_dir() {
-  local srcdir="$1"
-  local f
-  local bin_files=(
-    "pcg-doctor.sh"
-    "pcg-backup-config.sh"
-    "pcg-boot-notify.sh"
-    "pcg-send-telegram.sh"
-    "pcg-send-webhook.sh"
-    "pcg-shutdown-proxmox.sh"
-    "pcg-agent-lib.sh"
-    "pcg"
-  )
-  local unit_files=(
-    "pcg-backup-config.service"
-    "pcg-backup-config.timer"
-    "pcg-boot-notify.service"
-    "pcg-shutdown-proxmox.service"
-  )
-
-  mkdir -p "$PCG_BIN_TARGET" "$PCG_SYSTEMD_TARGET"
-
-  for f in "${bin_files[@]}"; do
-    install -m 755 "$srcdir/bin/$f" "$PCG_BIN_TARGET/$f"
+  local srcdir="$1" f
+  # Validate the complete payload before changing any installed artifact.
+  [ -s "$srcdir/VERSION" ] || return 1
+  [ -f "$srcdir/env/pcg-agent.env.example" ] || return 1
+  for f in "${PCG_CANONICAL_BIN_FILES[@]}"; do
+    [ "$f" = pcg-agent-version ] && continue
+    [ -f "$srcdir/bin/$f" ] || { ui_err "Missing source binary: $f"; return 1; }
   done
-  for f in "${unit_files[@]}"; do
-    install -m 644 "$srcdir/systemd/$f" "$PCG_SYSTEMD_TARGET/$f"
+  for f in "${PCG_CANONICAL_UNIT_FILES[@]}"; do
+    [ -f "$srcdir/systemd/$f" ] || { ui_err "Missing source unit: $f"; return 1; }
   done
-  if [ ! -f "$PCG_ENV_TARGET" ] && [ -f "$srcdir/env/pcg-agent.env.example" ]; then
-    install -m 600 "$srcdir/env/pcg-agent.env.example" "$PCG_ENV_TARGET"
+  local version cache cache_stage
+  version="$(tr -d '[:space:]' < "$srcdir/VERSION")"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  cache="$PCG_SOURCE_CACHE_ROOT/$version"
+  if [ "$(cd "$srcdir" && pwd -P)" != "$cache" ]; then
+    mkdir -p "$PCG_SOURCE_CACHE_ROOT" || return 1
+    cache_stage="$(mktemp -d "$PCG_SOURCE_CACHE_ROOT/.staging.XXXXXX")" || return 1
+    mkdir -p "$cache_stage/bin" "$cache_stage/systemd" "$cache_stage/env" || return 1
+    for f in "${PCG_CANONICAL_BIN_FILES[@]}"; do
+      [ "$f" = pcg-agent-version ] && continue
+      cp -a "$srcdir/bin/$f" "$cache_stage/bin/" || { rm -rf "$cache_stage"; return 1; }
+    done
+    for f in "${PCG_CANONICAL_UNIT_FILES[@]}"; do
+      cp -a "$srcdir/systemd/$f" "$cache_stage/systemd/" || { rm -rf "$cache_stage"; return 1; }
+    done
+    cp -a "$srcdir/env/pcg-agent.env.example" "$cache_stage/env/" || return 1
+    cp -a "$srcdir/VERSION" "$cache_stage/" || return 1
+    # Versioned payloads also keep rollback/resume sources available.
+    rm -rf "$cache" || return 1
+    mv "$cache_stage" "$cache" || return 1
   fi
+  mkdir -p "$PCG_BIN_TARGET" "$PCG_SYSTEMD_TARGET" || return 1
+  migrate_env_file || return 1
+  for f in "${PCG_CANONICAL_BIN_FILES[@]}"; do
+    [ "$f" = pcg-agent-version ] && continue
+    install -m 755 "$srcdir/bin/$f" "$PCG_BIN_TARGET/$f" || return 1
+  done
+  for f in "${PCG_CANONICAL_UNIT_FILES[@]}"; do
+    install -m 644 "$srcdir/systemd/$f" "$PCG_SYSTEMD_TARGET/$f" || return 1
+  done
+  if [ ! -f "$PCG_ENV_TARGET" ]; then
+    install -m 600 "$srcdir/env/pcg-agent.env.example" "$PCG_ENV_TARGET" || return 1
+  fi
+  return 0
+}
+
+# Installed CLI uses the matching local payload without requiring network access.
+ensure_install_source() {
+  [ -f "$VERSION_FILE" ] && [ -d "$REPO_ROOT/systemd" ] && return 0
+  pcg_load_version
+  local cached="$PCG_SOURCE_CACHE_ROOT/${AGENT_VERSION:-unknown}"
+  if [ ! -f "$cached/VERSION" ] || [ ! -d "$cached/systemd" ]; then
+    ui_err "Installer source is unavailable. Run install.sh from a repository checkout."
+    return 1
+  fi
+  REPO_ROOT="$cached"
+  VERSION_FILE="$REPO_ROOT/VERSION"
+  PCG_ENV_EXAMPLE_SOURCE="$REPO_ROOT/env/pcg-agent.env.example"
 }
 
 enable_canonical_services() {
-  pcg_systemctl daemon-reload
-  pcg_systemctl enable pcg-backup-config.timer pcg-shutdown-proxmox.service pcg-boot-notify.service
+  pcg_systemctl daemon-reload || return 1
+  pcg_systemctl enable pcg-backup-config.timer pcg-shutdown-proxmox.service pcg-boot-notify.service || return 1
   pcg_systemctl start pcg-backup-config.timer || true
 }
 
@@ -1518,6 +1534,7 @@ cmd_install() {
   done
 
   require_root
+  ensure_install_source || exit 1
 
   if [ "$clear_draft" -eq 1 ]; then
     if [ -f "$PCG_ENV_DRAFT" ]; then
@@ -1587,15 +1604,15 @@ cmd_install() {
   migrated=0
 
   if [ "$legacy_before" -eq 1 ]; then
-    ui_warn "Detected legacy artifacts. Installer will migrate to pa-* naming."
+    ui_warn "Detected legacy artifacts. Installer will migrate to pcg-* naming."
   fi
 
   set +e
   install_canonical_files_from_repo
   local rc=$?
   if [ "$rc" -eq 0 ]; then
-    migrate_env_file
-    write_runtime_version "$(get_repo_version)"
+    migrate_env_file || rc=1
+    write_runtime_version "$(get_repo_version)" || rc=1
     if [ "$rc" -eq 0 ]; then
       guided_env_setup "$force_resume"
       rc=$?
@@ -1654,10 +1671,15 @@ cmd_doctor() {
   doctor_check_binary git
   doctor_check_binary curl
   doctor_check_binary ssh
+  doctor_check_binary flock
+  doctor_check_binary tar
+  doctor_check_binary crontab
   if is_test_mode; then
     doctor_add_result "bin:systemctl" "ok" "skipped (test mode)"
   else
     doctor_check_binary systemctl
+    doctor_check_binary qm
+    doctor_check_binary pct
   fi
 
   pcg_load_version
@@ -1847,10 +1869,10 @@ cmd_upgrade() {
   install_canonical_files_from_source_dir "$srcdir"
   rc=$?
   if [ "$rc" -eq 0 ]; then
-    migrate_env_file
-    write_runtime_version "$target_version"
-    disable_legacy_units
-    enable_canonical_services || rc=1
+    migrate_env_file || rc=1
+    write_runtime_version "$target_version" || rc=1
+    [ "$rc" -eq 0 ] && disable_legacy_units
+    [ "$rc" -eq 0 ] && enable_canonical_services || rc=1
     if [ "$rc" -eq 0 ] && [ "$legacy_before" -eq 1 ]; then
       remove_legacy_artifacts
       pcg_systemctl daemon-reload

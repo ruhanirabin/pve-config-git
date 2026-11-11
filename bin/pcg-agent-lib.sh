@@ -90,6 +90,8 @@ pcg_load_version() {
 
 pcg_load_env() {
   local source_rc
+  local had_errexit=0
+  [[ $- == *e* ]] && had_errexit=1
   local source_err_file
   pcg_source_env_file() {
     local file="$1"
@@ -99,7 +101,7 @@ pcg_load_env() {
     set +e
     source "$file" 2>"$source_err_file"
     source_rc=$?
-    set -e
+    if [ "$had_errexit" -eq 1 ]; then set -e; else set +e; fi
     if [ "$source_rc" -ne 0 ]; then
       echo "[!] Warning: failed to fully parse $file (rc=$source_rc). Continue with loaded values and fix invalid lines." >&2
       if [ -s "$source_err_file" ]; then
@@ -145,7 +147,18 @@ pcg_rotate_log_family() {
   log_base="$(basename "$log_file")"
 
   mkdir -p "$log_dir"
-  find "$log_dir" -type f -name "${log_base}*" -mtime +"$retention_days" -exec rm -f {} \; 2>/dev/null || true
+  # Daily shutdown filenames share one retention family.
+  if [[ "$log_base" == shutdown_????-??-??.log ]]; then
+    log_base="shutdown_"
+  elif [ -f "$log_file" ]; then
+    local today modified
+    today="$(date +%F)"
+    modified="$(date -r "$log_file" +%F)"
+    if [ "$modified" != "$today" ]; then
+      mv "$log_file" "$log_file.$modified.$(date +%s).$$" || return 1
+    fi
+  fi
+  find "$log_dir" -maxdepth 1 -type f -name "${log_base}*" -mtime +"$retention_days" -exec rm -f {} \; 2>/dev/null || true
 }
 
 pcg_event_enabled() {
