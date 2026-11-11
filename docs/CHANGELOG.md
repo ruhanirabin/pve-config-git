@@ -1,3 +1,9 @@
+## 0.7.30
+
+- fix: check unattended repository read access and dry-run push access before completing installation.
+- fix: bound Git network operations and stop credential prompts in backups, checks and upgrades.
+- improve: explain SSH, HTTPS, repository, network and push failures without logging credential-bearing errors.
+
 ## 0.7.29
 
 - fix: collect VM definitions and remove deleted configurations from new backups.

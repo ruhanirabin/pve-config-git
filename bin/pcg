@@ -308,7 +308,7 @@ map_cmds_to_packages() {
       apt:systemctl) pkg="systemd" ;;
       *:flock) pkg="util-linux" ;;
       *:find) pkg="findutils" ;;
-      *:install) pkg="coreutils" ;;
+      *:install|*:timeout) pkg="coreutils" ;;
       apt:crontab) pkg="cron" ;;
       dnf:ssh|dnf:ssh-keygen|yum:ssh|yum:ssh-keygen|zypper:ssh|zypper:ssh-keygen|pacman:ssh|pacman:ssh-keygen|apk:ssh|apk:ssh-keygen) pkg="openssh" ;;
       dnf:systemctl|yum:systemctl|zypper:systemctl|pacman:systemctl|apk:systemctl) pkg="systemd" ;;
@@ -375,7 +375,7 @@ preflight_checks() {
   local missing=0
   local c
   local -a missing_cmds=()
-  for c in bash git curl ssh ssh-keygen flock tar find install crontab; do
+  for c in bash git curl ssh ssh-keygen flock tar find install crontab timeout; do
     if command -v "$c" >/dev/null 2>&1; then
       ui_ok "dependency: $c"
     else
@@ -694,9 +694,23 @@ validate_github_ssh() {
   if is_test_mode; then
     return 0
   fi
-  local output
-  output="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -T git@github.com 2>&1 || true)"
-  echo "$output" | grep -qi "successfully authenticated"
+  local output rc=0 seconds errors
+  PCG_GIT_ERROR=""
+  seconds="$(pcg_network_timeout)" || { PCG_GIT_ERROR="GIT_TIMEOUT_SECONDS must be between 1 and 3600."; return 1; }
+  command -v timeout >/dev/null || { PCG_GIT_ERROR="Missing dependency: timeout (coreutils)."; ui_err "$PCG_GIT_ERROR"; return 1; }
+  errors="$(mktemp)" || return 1
+  output="$(LC_ALL=C SSH_ASKPASS=/bin/false SSH_ASKPASS_REQUIRE=never \
+    timeout --kill-after=5 "$seconds" ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+    -o ConnectTimeout=10 -o ConnectionAttempts=1 -T git@github.com </dev/null 2>&1)" || rc=$?
+  if [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ] && [[ "$output" == *"successfully authenticated"* ]]; then
+    rm -f "$errors"
+    return 0
+  fi
+  printf '%s' "$output" > "$errors"
+  pcg_git_error "$rc" "$errors"
+  rm -f "$errors"
+  ui_err "$PCG_GIT_ERROR"
+  return 1
 }
 
 guided_env_setup() {
@@ -961,7 +975,7 @@ collect_preinstall_report_data() {
   PRE_CANONICAL_UNITS_PRESENT=()
 
   local dep
-  for dep in bash git curl ssh ssh-keygen flock tar find install crontab; do
+  for dep in bash git curl ssh ssh-keygen flock tar find install crontab timeout; do
     if command -v "$dep" >/dev/null 2>&1; then
       PRE_DEPS_OK+=("$dep")
     else
@@ -1020,8 +1034,8 @@ collect_preinstall_report_data() {
 
   if is_test_mode; then
     PRE_NOTES+=("PCG_TEST_MODE=true; GitHub SSH and systemctl enforcement are relaxed for test runs")
-  elif is_ssh_remote_url "${GIT_REMOTE_URL:-}" && ! validate_github_ssh; then
-    PRE_WARNINGS+=("GitHub SSH auth is not currently valid; installer will guide key setup/retry")
+  elif is_ssh_remote_url "${GIT_REMOTE_URL:-}" && ! validate_github_ssh 2>/dev/null; then
+    PRE_WARNINGS+=("${PCG_GIT_ERROR:-GitHub SSH authentication failed.} Installer will guide key setup/retry.")
   fi
 
   local u
@@ -1195,18 +1209,22 @@ validate_git_remote_access() {
   quiet="${1:-0}"
   pcg_load_env
   repo_dir="${REPO_DIR:-/root/pve-config}"
-
+  PCG_REMOTE_ERROR=""
   if ! git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
-    [ "$quiet" = "1" ] || echo "Missing git origin remote in $repo_dir. Set GIT_REMOTE_URL in $PCG_ENV_TARGET or add origin manually."
-    return 1
+    PCG_REMOTE_ERROR="Missing origin remote. Set GIT_REMOTE_URL and rerun pcg install."
+  elif ! pcg_git_network -C "$repo_dir" ls-remote origin >/dev/null 2>/dev/null; then
+    PCG_REMOTE_ERROR="${PCG_GIT_ERROR:-Repository read check failed.}"
+  else
+    local push_error
+    if push_error="$(pcg_git_check_push "$repo_dir" 2>&1)"; then
+      [ "$quiet" = 1 ] || ui_ok "Unattended read and dry-run push checks passed. Branch rules and server hooks still apply to real backups."
+      return 0
+    fi
+    # The probe only emits sanitized errors, never raw Git credentials.
+    PCG_REMOTE_ERROR="${push_error:-Repository dry-run push check failed.}"
   fi
-
-  if ! git -C "$repo_dir" ls-remote origin >/dev/null 2>&1; then
-    [ "$quiet" = "1" ] || echo "Cannot access git remote from $repo_dir."
-    return 1
-  fi
-
-  return 0
+  [ "$quiet" = 1 ] || ui_err "$PCG_REMOTE_ERROR"
+  return 1
 }
 
 detect_legacy_artifacts() {
@@ -1673,6 +1691,7 @@ cmd_doctor() {
   doctor_check_binary ssh
   doctor_check_binary flock
   doctor_check_binary tar
+  doctor_check_binary timeout
   doctor_check_binary crontab
   if is_test_mode; then
     doctor_add_result "bin:systemctl" "ok" "skipped (test mode)"
@@ -1731,10 +1750,10 @@ cmd_doctor() {
   doctor_check_active_state pcg-backup-config.timer
 
   if is_ssh_remote_url "${GIT_REMOTE_URL:-}"; then
-    if validate_github_ssh; then
+    if validate_github_ssh 2>/dev/null; then
       doctor_add_result "ssh_github" "ok" "authenticated"
     else
-      doctor_add_result "ssh_github" "fail" "authentication failed"
+      doctor_add_result "ssh_github" "fail" "${PCG_GIT_ERROR:-SSH authentication failed.}"
     fi
   elif is_https_remote_url "${GIT_REMOTE_URL:-}"; then
     doctor_add_result "ssh_github" "ok" "skipped (HTTPS remote)"
@@ -1743,9 +1762,9 @@ cmd_doctor() {
   fi
 
   if validate_git_remote_access 1; then
-    doctor_add_result "git_remote" "ok" "reachable"
+    doctor_add_result "git_remote" "ok" "unattended read and dry-run push accepted (branch rules/hooks not verified)"
   else
-    doctor_add_result "git_remote" "fail" "unreachable"
+    doctor_add_result "git_remote" "fail" "$PCG_REMOTE_ERROR"
   fi
 
   if [ "$json" -eq 1 ]; then
@@ -1779,7 +1798,7 @@ cmd_notify() {
 
 resolve_latest_tag() {
   local source="$1"
-  git ls-remote --tags --refs "$source" \
+  pcg_git_network ls-remote --tags --refs "$source" \
     | awk '{print $2}' \
     | sed 's#refs/tags/##' \
     | sort -V \
@@ -1791,7 +1810,7 @@ extract_edge_source() {
   local tmpdir="$2"
   local archive="$tmpdir/edge-archive"
   mkdir -p "$tmpdir"
-  curl -fsSL "$source" -o "$archive"
+  curl -fsSL --connect-timeout 10 --max-time "$(pcg_network_timeout)" "$source" -o "$archive"
 
   if [[ "$source" =~ \.zip($|\?) ]]; then
     unzip -q "$archive" -d "$tmpdir/extracted"
@@ -1845,7 +1864,7 @@ cmd_upgrade() {
   if [ "$channel" = "stable" ]; then
     [ -n "$target" ] || target="$(resolve_latest_tag "$source")"
     [ -n "$target" ] || { ui_err "Cannot resolve stable target tag."; exit 1; }
-    git clone --depth 1 --branch "$target" "$source" "$tmpdir/src" >/dev/null 2>&1
+    pcg_git_network clone --depth 1 --branch "$target" "$source" "$tmpdir/src" >/dev/null
     srcdir="$tmpdir/src"
   elif [ "$channel" = "edge" ]; then
     srcdir="$(extract_edge_source "$source" "$tmpdir")"

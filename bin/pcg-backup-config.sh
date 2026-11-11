@@ -137,12 +137,12 @@ git add -A -- "$NODE_NAME"
 
 if git diff --cached --quiet; then
   echo "No configuration changes detected; synchronizing unpublished commits."
-  git pull --rebase origin "$REPO_BRANCH" || {
+  pcg_git_network pull --rebase origin "$REPO_BRANCH" || {
     # An empty remote has no branch to pull yet; all other failures are fatal.
-    refs="$(git ls-remote --heads origin "refs/heads/$REPO_BRANCH")" || exit 1
+    refs="$(pcg_git_network ls-remote --heads origin "refs/heads/$REPO_BRANCH")" || exit 1
     [ -z "$refs" ] || exit 1
   }
-  git push origin "$REPO_BRANCH"
+  pcg_git_network push origin "$REPO_BRANCH"
   pcg_send_webhook "backup" "no_changes" "Backup synchronized" "No files changed for node $NODE_NAME; local commits pushed." || true
   exit 0
 fi
@@ -156,24 +156,27 @@ echo "=== Full diff ==="
 echo "$FULL_DIFF"
 
 git commit -m "$COMMIT_MSG"
-remote_refs="$(git ls-remote --heads origin "refs/heads/$REPO_BRANCH")"
+remote_refs="$(pcg_git_network ls-remote --heads origin "refs/heads/$REPO_BRANCH")"
 if [ -n "$remote_refs" ]; then
-    git pull --rebase origin "$REPO_BRANCH"
+    pcg_git_network pull --rebase origin "$REPO_BRANCH"
 else
   echo "Remote branch does not exist yet; skipping rebase pull."
 fi
-git push origin "$REPO_BRANCH"
+pcg_git_network push origin "$REPO_BRANCH"
 
 TAG_BASE="$NODE_NAME-backup-$(date '+%Y-%m-%d-%H%M')"
 TAG_NAME="$TAG_BASE"
 tag_suffix=1
-while git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null 2>&1 || \
-      git ls-remote --exit-code --tags origin "refs/tags/$TAG_NAME" >/dev/null 2>&1; do
+while true; do
+  tag_refs="$(pcg_git_network ls-remote --tags origin "refs/tags/$TAG_NAME")"
+  if ! git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null && [ -z "$tag_refs" ]; then
+    break
+  fi
   TAG_NAME="${TAG_BASE}-${tag_suffix}"
   tag_suffix=$((tag_suffix + 1))
 done
 git tag "$TAG_NAME"
-git push origin "$TAG_NAME"
+pcg_git_network push origin "$TAG_NAME"
 
 if [[ -n "$CRITICAL" ]]; then
   MSG="Proxmox critical change on $NODE_NAME at $DATE_TAG ($CHANGES files)."

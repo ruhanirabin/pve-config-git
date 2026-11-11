@@ -128,7 +128,7 @@ For a notification system that accepts PCG webhook events, prepare:
 ### 4. Host dependencies
 
 - Proxmox VE host with root shell access
-- `bash`, `curl`, `git`, `ssh`, `ssh-keygen`, `tar`, `find`, `install`, `flock` and `crontab`
+- `bash`, `curl`, `git`, `ssh`, `ssh-keygen`, `tar`, `find`, `install`, `flock`, `crontab` and `timeout`
 - Proxmox commands `qm` and `pct` for guest operations
 - `systemctl` (required for live install; skipped only in `PCG_TEST_MODE=true`)
 - Internet access from your Proxmox node to reach GitHub
@@ -197,7 +197,19 @@ pcg install --clear-draft
 pcg uninstall
 ```
 
-For SSH remotes, the installer checks GitHub authentication and lets you retry after adding the public key. HTTPS remotes skip this SSH check.
+For SSH remotes, the installer checks GitHub authentication and lets you retry after adding the public key. HTTPS remotes skip this SSH check. Guided installation currently accepts GitHub.com repositories only.
+
+### Unattended repository access
+
+Installation and `pcg doctor` check repository read access and run a dry-run push. The push probe uses temporary local Git objects and a temporary branch name, but it does not create a remote branch or change your local commits, index or working files. It works with an empty repository too.
+
+A successful dry run confirms access to the write endpoint. It does not run server hooks or prove that the backup branch's protection rules will accept a real push. The first successful `pcg backup` is still needed to verify publication.
+
+Git network commands cannot ask for a username, password or SSH passphrase. For SSH, use a key available to root without interaction, including any required agent setup for the systemd service. For HTTPS, configure a root credential helper with credentials that can write to the backup repository. Do not put tokens in the remote URL.
+
+Each Git network command has a 60-second timeout, followed by a five-second termination grace period. Set `GIT_TIMEOUT_SECONDS` in the runtime env file to adjust the limit. SSH connection attempts also have a ten-second connection timeout. These limits apply to checks, backup pulls/pushes and Git-based upgrades.
+
+If an access check fails, installation reports the problem and restores its managed files. Doctor returns a failure with the same guidance in plain text or JSON. Errors distinguish SSH authentication, HTTPS credentials, inaccessible repositories, network failures, timeouts and rejected pushes where Git provides enough detail. A private repository can appear as “not found” when credentials lack access, so that message asks you to check both the URL and permissions.
 
 ## Console UI
 
@@ -244,7 +256,7 @@ Checks include:
 - Env file presence
 - Canonical systemd unit enable/active state
 - Legacy artifact detection status
-- GitHub SSH auth + Git remote reachability
+- GitHub SSH authentication, unattended repository read access and dry-run push access
 - Notification config sanity
 
 A nonzero exit status means at least one health check failed. A successful doctor run does not prove that a backup or shutdown has completed successfully.
@@ -273,6 +285,7 @@ Important variables:
 - `GIT_COMMIT_NAME`, `GIT_COMMIT_EMAIL`
 - `BACKUP_INCLUDE_EXTRA` (additional absolute paths, separated by commas)
 - `BACKUP_LOCK_TIMEOUT_SECONDS` (defaults to 120 seconds)
+- `GIT_TIMEOUT_SECONDS` (defaults to 60 seconds per network command; allowed range 1–3600)
 - `BOT_TOKEN`, `CHAT_ID`
 - `WEBHOOK_ENABLED`, `WEBHOOK_URL`, `WEBHOOK_BEARER_TOKEN`
 - `WEBHOOK_EVENTS` (`install,doctor,backup,shutdown` by default)
@@ -372,8 +385,16 @@ tests/docker-guided-smoke.sh
 - `GitHub SSH authentication failed`
   - Confirm the exact public key on the current node (`/root/.ssh/id_ed25519.pub`) is added to your GitHub account.
   - Old keys from other nodes/containers do not satisfy this host.
-- `git_remote unreachable`
-  - Verify `GIT_REMOTE_URL` and SSH access: `ssh -T git@github.com` and `git -C "$REPO_DIR" ls-remote origin`.
+- HTTPS authentication failure
+  - Configure credentials for root that work without a prompt. Check repository write permission and any organization authorization requirements.
+- Repository not found or not accessible
+  - Check `GIT_REMOTE_URL`, confirm that the repository exists, and verify the key or token has access to it.
+- Repository write access denied
+  - Read access alone is not enough. Grant the key or token write access, then rerun `pcg doctor`.
+- Git operation timed out
+  - Check DNS, firewall, GitHub availability and credential helpers. Increase `GIT_TIMEOUT_SECONDS` only if the connection is healthy but slow.
+- Push rejected
+  - Check the backup branch's protection rules and remote changes. Resolve conflicts before retrying.
 - Duplicate legacy/canonical units
   - Re-run `pcg install` and then `pcg doctor` to complete migration cleanup.
 

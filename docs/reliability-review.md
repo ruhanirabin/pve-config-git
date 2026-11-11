@@ -1,6 +1,6 @@
 # Reliability review fixes
 
-Work branch: `fix/backup-lifecycle-reliability`. Prepared version: 0.7.29.
+Work branch: `fix/backup-lifecycle-reliability`. Prepared version: 0.7.30.
 All 19 supplied findings have implementation changes. This is not a target-host
 release acceptance record.
 
@@ -42,12 +42,29 @@ release acceptance record.
 - Extra scripts now require explicit operator selection. Git history can still
   contain older files; removing a file from a new snapshot does not erase history.
 
+## Unattended Git access follow-up
+
+- Install and doctor now check read access and a dry-run push, including empty
+  repositories. Temporary local objects are discarded and no remote branch is
+  created. The check retains repository-local transport and credential settings.
+- Git network commands use non-interactive credential settings, batch SSH,
+  closed standard input and an overall timeout. `GIT_TIMEOUT_SECONDS` defaults
+  to 60 seconds, with a five-second termination grace period.
+- Errors are classified without forwarding raw credential-bearing output.
+  GitHub's private-repository “not found” response stays explicitly ambiguous.
+- Tests cover simulated read-only credentials, missing keys, HTTPS prompts,
+  network errors, host-key errors, timeout termination, untouched local/remote
+  state and GitHub's successful SSH greeting with exit status 1.
+- Dry-run checks do not run receive hooks or prove backup-branch rules will
+  accept a real push. Live GitHub permissions remain unverified. GitLab support
+  is deferred.
+
 ## Validation boundary
 
 Local isolated tests use real Git and local bare remotes, synthetic PVE files,
 mock notifications and mock guest/systemctl commands. The Ubuntu smoke uses
 PCG_TEST_MODE, so it does not establish real systemd or Proxmox acceptance.
 
-Before release, run install, doctor, backup and upgrade/rollback on a disposable
-Proxmox target. Verify guest lifecycle behavior there. No host activation,
+Before release, follow [the local Proxmox acceptance runbook](proxmox-acceptance.md)
+to run install, doctor, backup and upgrade/rollback on the disposable VM. Verify guest lifecycle behavior there. No host activation,
 remote push, tag or release is part of this branch preparation.
