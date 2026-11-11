@@ -1,3 +1,14 @@
+## 0.7.29
+
+- fix: collect VM definitions and remove deleted configurations from new backups.
+- fix: serialize backups and retry unpublished commits after temporary push failures.
+- fix: collect only managed PCG scripts by default; select other scripts explicitly with BACKUP_INCLUDE_EXTRA (breaking change).
+- fix: preserve legacy settings and roll back incomplete installation or upgrade attempts.
+- fix: restore canonical services and support installed reinstall/resume using cached sources.
+- fix: continue guest shutdown after forced stops and honor the system stopping guard.
+- fix: rotate active logs, expire dated shutdown logs, and bound backup notifications.
+- fix: keep invalid menu warnings separate from selected answers.
+
 ## 0.7.28
 
 - fix: allow backups to start without a missing log-rotation command error.

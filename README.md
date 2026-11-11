@@ -372,9 +372,17 @@ tests/docker-guided-smoke.sh
 - Duplicate legacy/canonical units
   - Re-run `pcg install` and then `pcg doctor` to complete migration cleanup.
 
+Installed reinstall and resume use versioned source payloads under `/usr/local/share/pcg/sources/`. Older installations without that cache must run `install.sh` from a checkout once. On a first installation, choosing Save restores the previous files, so resume from the checkout with `sudo ./bin/pcg install --resume`. Cached payloads contain shipped templates, not the private runtime environment, and are retained for rollback.
+
+Logs rotate on the first invocation after the date changes. Retention removes both rotated logs and the complete dated shutdown log family. A long-running process keeps its open log until it finishes.
+
 ## Security notes
 
-- Secret files are excluded by default from backup collection.
+- The default script collection includes only the managed PCG CLI and scripts. To include another script, add its absolute path to comma-separated `BACKUP_INCLUDE_EXTRA`. Review selected files for embedded credentials before enabling collection.
+- VM and LXC definitions, firewall settings and custom systemd units are refreshed on each backup, including deletions. Earlier Git commits still retain historical content.
+- Backup requires mounted `/etc/pve/lxc` and `/etc/pve/qemu-server` directories, Git, and `flock` from util-linux. A missing configuration directory fails the run and preserves the previous collection.
+- Timer, manual and shutdown backups share a repository lock. `BACKUP_LOCK_TIMEOUT_SECONDS` defaults to 120. A clean collection still retries publishing local commits.
+- Existing staged changes or interrupted rebases need operator resolution before another backup can run.
 - Webhook bearer tokens are supported for outbound webhook auth.
 - Keep `/root/.pcg-agent.env` at mode `600`.
 

@@ -153,6 +153,16 @@ Companion rules file: `docs/rules/commit_git_message_rule.md`
 - `doctor` must remain non-destructive and report actionable failures.
 - `upgrade` must support rollback on failed apply or failed post-upgrade doctor.
 
+## End-User Dependency Review
+
+- For every operational fix, trace the full install, runtime and recovery path.
+- Check required commands, package names, permissions, source artifacts, service
+  names, environment loading and external-service failures.
+- Keep preflight and doctor checks aligned with runtime dependencies. Missing
+  requirements must produce actionable failures rather than silent success.
+- Test failure and retry paths alongside the normal flow. Record which checks
+  used fixtures or containers and which ran on a real Proxmox host.
+
 ## Security & Secrets
 
 - Never commit real credentials.
