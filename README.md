@@ -409,6 +409,18 @@ Choose one command for the update. The explicit target example requires a publis
 
 Stable selection uses a version-sorted tag list, which can include prerelease tags. Use `--target` to select an approved version.
 
+### Automatic version tags
+
+When `VERSION` changes on `main`, the **Validate and tag VERSION** GitHub Actions workflow validates the version, checks the matching changelog entry and runs the regression tests. It then creates `v<VERSION>` at that exact commit. Wait for the workflow to succeed before requesting the new tag through `pcg upgrade`.
+
+For each release, choose the next version in `VERSION` and add its matching first entry in `docs/CHANGELOG.md`. The repository caps are `MAJOR<=30`, `MINOR<=20` and `PATCH<=30`. For example, `0.7.30` rolls over to `0.8.0`.
+
+Pull requests run validation with read access. Tag publication runs on `main` with the built-in `GITHUB_TOKEN` and `contents: write`. A GitHub Release page can be added separately. The stable upgrader consumes the Git tag directly.
+
+Existing tags remain fixed. A rerun succeeds if the remote tag already points to the same commit, and fails if it points elsewhere. If publication fails, inspect the workflow logs and rerun the failed job after resolving the problem. The Actions page also offers **Run workflow** for `main` to recover a missing tag at the current commit.
+
+Documentation-only pushes with an unchanged `VERSION` do not trigger automatic tagging. If a tag already exists at an earlier commit, a manual run for a later commit with the same version fails instead of moving that tag.
+
 ### What happens during an update
 
 The installer or upgrader snapshots managed scripts, units, the runtime version, environment files and unit enablement. It then applies the source files, reloads systemd and validates the installed runtime with doctor.

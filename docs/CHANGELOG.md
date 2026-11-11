@@ -1,5 +1,7 @@
 ## 0.8.1
 
+- improve: publish versioned upgrade tags automatically when VERSION changes on main, after validation and regression checks.
+
 - fix: include VM definitions and remove deleted VM, LXC, firewall, unit and selected extra files from new backups.
 - fix: serialize timer, manual and shutdown backups and retry unpublished commits after a failed push.
 - fix: preserve legacy settings, migrate canonical service names and restore managed files when installation or upgrade validation fails.

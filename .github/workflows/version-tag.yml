@@ -1,0 +1,55 @@
+name: Validate and tag VERSION
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: version-tag-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate VERSION and changelog
+        run: bash .github/scripts/version-tag.sh --check
+      - name: Check Bash syntax
+        run: |
+          bash -n install.sh
+          find bin tests .github/scripts -type f \( -name '*.sh' -o -name pcg \) -print0 | xargs -0 -r -n 1 bash -n
+      - name: Test release tagging safeguards
+        run: bash tests/test-version-tag.sh
+      - name: Test backup and access regressions
+        run: bash tests/test-backup.sh
+      - name: Test shutdown regressions
+        run: bash tests/test-shutdown-behavior.sh
+
+  tag:
+    needs: validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Publish the VERSION tag
+        env:
+          PCG_TAG_COMMIT: ${{ github.sha }}
+        run: bash .github/scripts/version-tag.sh --publish "$PCG_TAG_COMMIT"
