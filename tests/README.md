@@ -270,3 +270,7 @@ Both can coexist — `docker-guided-smoke.sh` for quick Ubuntu flow checks, this
 # Help
 ./run-tests.sh --help
 ```
+
+## Isolated startup regression
+
+Run `bash tests/test-backup-startup.sh` from the project root. This checks backup log initialization and webhook usage errors without root, containers, host configuration collection, or network access.

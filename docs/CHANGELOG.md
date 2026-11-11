@@ -1,3 +1,8 @@
+## 0.7.28
+
+- fix: allow backups to start without a missing log-rotation command error.
+- fix: show webhook usage instructions when the event argument is missing.
+
 ## 0.7.27
 
 - fix: correct mixed `PA_*` to `PCG_*` variable names in migration functions (`cmd_install`, `cmd_upgrade`, `collect_preinstall_report_data`, `detect_legacy_artifacts`). Ensures legacy artifact detection and migration work correctly for users upgrading from pre-`pcg` naming.

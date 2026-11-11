@@ -17,7 +17,7 @@ pcg_load_version
 pcg_load_env
 
 LOG_FILE="${BACKUP_LOG_FILE:-/var/log/pcg-backup-config.log}"
-pa_rotate_log_family "$LOG_FILE" "${BACKUP_LOG_RETENTION_DAYS:-}"
+pcg_rotate_log_family "$LOG_FILE" "${BACKUP_LOG_RETENTION_DAYS:-}"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 REPO_DIR="${REPO_DIR:-/root/pve-config}"
