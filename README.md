@@ -3,39 +3,39 @@
 
 > **Quick Links:** [Changelog](docs/CHANGELOG.md) • [License](LICENSE)
 
-PCG (Proxmox Config Git) is a lightweight Bash + systemd toolkit that **backs up your Proxmox host configuration files to GitHub** — giving you a complete history of every change made to your node setup.
+PCG (Proxmox Config Git) uses Bash and systemd to **back up selected Proxmox host configuration files to GitHub**. Git keeps a history so you can inspect changes and recover earlier configurations.
 
-## ⚠️ Important: What This Tool Does (And Doesn't Do)
+## Configuration backups, not VM backups
 
-**This tool backs up CONFIGURATION FILES, not your virtual machines.**
+PCG backs up configuration files. It does not back up VM or LXC disks and data.
 
 | This Tool DOES | This Tool DOES NOT |
 |----------------|-------------------|
-| ✅ Backup Proxmox config files (`/etc/pve/`, `/etc/network/interfaces`, etc.) | ❌ Backup VM/LXC disk images or container files |
+| ✅ Back up Proxmox config files (`/etc/pve/`, `/etc/network/interfaces`, etc.) | ❌ Back up VM/LXC disk images or container files |
 | ✅ Track changes to your node setup over time in Git | ❌ Create full system images for disaster recovery |
-| ✅ Let you see WHO changed WHAT and WHEN | ❌ Replace traditional VM backup solutions |
-| ✅ Help you rollback configuration mistakes | ❌ Backup your actual VMs or their data |
+| ✅ Show who changed what and when | ❌ Replace traditional VM backup solutions |
+| ✅ Help you roll back configuration mistakes | ❌ Back up your actual VMs or their data |
 
-**Why this matters:** If you accidentally break your network config or delete a storage pool, this tool lets you see exactly what changed and restore the working config. But if your VM's hard drive corrupts, you'll need a proper VM backup solution (like Proxmox Backup Server or `vzdump`).
+If a configuration change breaks your network or storage setup, the Git history helps you find the change and recover an earlier config. Recovering VM disks or data requires a separate backup, such as Proxmox Backup Server or `vzdump`.
 
-**The original idea:** I made this so I can go back in time and see what was changed on my Proxmox configuration using Git. Think of it as "version control for your server setup."
+I made this because I wanted to look back through Git and see what had changed in my Proxmox configuration.
 
 ---
 
 ## What it helps with
 
 - Tracks Proxmox host config changes over time in Git.
-- Automatically commits and pushes only when changes exist.
-- Runs on both periodic timer and shutdown trigger.
-- Sends notifications to Telegram and/or webhook endpoints.
-- Migrates older legacy naming (`backup-config*`, `shutdown-proxmox*`, etc.) to canonical `pcg-*` names.
-- Provides `doctor` and preinstall simulation reporting for safer operations.
+- Commits configuration changes and pushes them to GitHub. Runs with no new changes still retry unpublished commits.
+- Runs on a timer and before shutdown.
+- Sends notifications through Telegram, webhooks, or both.
+- Migrates older naming (`backup-config*`, `shutdown-proxmox*`, etc.) to canonical `pcg-*` names.
+- Provides `doctor` health checks and a read-only preinstall report.
 
 ## Key features
 
 - Canonical `pcg-*` runtime naming for scripts, units, env, and logs.
 - Single runtime version source: `/usr/local/bin/pcg-agent-version` generated from repo `VERSION`.
-- Guided installer flow (`install.sh`) with preflight checks and confirmation gate.
+- Guided installer (`install.sh`) with prerequisite checks and confirmation before installation.
 - Lifecycle CLI:
   - `pcg install [--resume|--clear-draft]`
   - `pcg doctor [--json]`
@@ -44,31 +44,31 @@ PCG (Proxmox Config Git) is a lightweight Bash + systemd toolkit that **backs up
   - `pcg notify [message]`
   - `pcg uninstall`
   - `pcg upgrade [--channel stable|edge] [--target <tag>]`
-- Automatic backup/rollback safety during install and upgrade.
+- Snapshots managed files before installation and upgrades, then restores them if validation fails.
 
-## ⚠️ Requirements (Read This Before Installing)
+## Requirements
 
-Before you run the installer, make sure you have ALL of the following ready:
+Run the installer on the Proxmox host as root. Prepare a GitHub repository and choose how you want to receive notifications.
 
-### 1. GitHub Repository (Empty Repo Ready)
+### 1. Private GitHub repository
 
-You need a **private GitHub repository** created and waiting. This is where your Proxmox config will be stored. This is a required item for the installer to work.
+Create a **private GitHub repository** for your configuration backups before installing.
 
 - Go to GitHub → Create a new repository → Make it **private**
-- **Do NOT initialize it with a README, .gitignore, or license** — leave it completely empty
+- Leave it empty. Do not initialize it with a README, .gitignore, or license.
 - The installer will set this up as your backup destination
 - Example URL: `git@github.com:yourusername/proxmox-config-backup.git`
 
-### 2. SSH Key Authentication (Proxmox VE Shell)
+### 2. GitHub authentication from the Proxmox host
 
-**You must run the installer from the Proxmox VE shell** (not from inside a VM or container). This is the actual host node's command line. This is a required item for the installer to work.
+**Run the installer from the Proxmox host shell**, not inside a VM or container. For an SSH remote, add the host's public key to GitHub. HTTPS remotes skip SSH validation but still need credentials that allow unattended Git access.
 
-#### Step-by-step SSH Setup for Beginners:
+#### Set up SSH access
 
 1. **Open the Proxmox VE Shell:**
    - In the Proxmox web UI, click on your node name (left sidebar)
    - Click "Shell" to open a terminal to the actual host
-   - **Important:** You cannot SSH into a VM and run this — it must be the Proxmox host itself
+   - Check that the shell belongs to the host node.
 
 2. **Generate an SSH Key (if you don't have one):**
    ```bash
@@ -90,20 +90,20 @@ You need a **private GitHub repository** created and waiting. This is where your
 
 5. **Test the Connection:**
 
-Run this inside Proxmox VE Shell
+   Run this in the Proxmox host shell:
 
    ```bash
    ssh -T git@github.com
    # You should see: "Hi username! You've successfully authenticated..."
    ```
 
-**Note:** Each Proxmox node needs its own SSH key added to GitHub if you're backing up multiple nodes.
+For multiple nodes, add each node's own SSH public key to GitHub.
 
-### 3. Notification Method Ready (Required)
+### 3. Notification settings
 
-You MUST have at least one notification method configured. The installer will ask for this. This is a required item for the installer to work.
+Choose Telegram, a webhook, or both. You can also choose **Do it later** during installation. That saves placeholder values, which you must replace before using notifications.
 
-#### Option A: Telegram Bot (Easiest for Most Users)
+#### Option A: Telegram bot
 
 1. **Create a bot with BotFather:**
    - Open Telegram and message [@BotFather](https://t.me/botfather)
@@ -113,7 +113,7 @@ You MUST have at least one notification method configured. The installer will as
 2. **Get Your Chat ID:**
    - Message your new bot once to start it
    - Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-   - Look for `"chat":{"id":12345678` — that number is your **chat ID**
+   - Look for `"chat":{"id":12345678`. That number is your **chat ID**.
 
 3. **You'll enter these during installation:**
    - Bot Token: `123456789:ABCdefGHIjklMNOpqrSTUvwxyz`
@@ -121,14 +121,15 @@ You MUST have at least one notification method configured. The installer will as
 
 #### Option B: Webhook Endpoint
 
-If you have your own notification system (Discord, Slack, n8n, etc.), prepare:
+For a notification system that accepts PCG webhook events, prepare:
 - Webhook URL where notifications should be sent
 - Bearer token if your webhook requires authentication
 
-### 4. Basic System Requirements
+### 4. Host dependencies
 
 - Proxmox VE host with root shell access
-- `bash`, `curl`, `git`, `ssh`, `ssh-keygen`, `tar` (usually pre-installed)
+- `bash`, `curl`, `git`, `ssh`, `ssh-keygen`, `tar`, `find`, `install`, `flock` and `crontab`
+- Proxmox commands `qm` and `pct` for guest operations
 - `systemctl` (required for live install; skipped only in `PCG_TEST_MODE=true`)
 - Internet access from your Proxmox node to reach GitHub
 
@@ -138,7 +139,7 @@ If you have your own notification system (Discord, Slack, n8n, etc.), prepare:
 
 ### One-liner bootstrap (guided)
 
-**Remember:** Run this in the Proxmox VE shell, not inside a VM/LXC.
+Run this in the Proxmox host shell.
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/ruhanirabin/pve-config-git/main/install.sh)"
@@ -146,10 +147,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/ruhanirabin/pve-config-g
 
 The guided bootstrap will:
 
-1. Run dependency preflight.
-2. Detect existing/legacy install.
+1. Check prerequisites.
+2. Detect an existing or legacy installation.
 3. Run a read-only simulation report.
-4. Ask for explicit confirmation before mutating the host.
+4. Ask for confirmation before applying installation changes.
 5. Launch guided `pcg install`.
 
 ### Local repo install
@@ -170,7 +171,7 @@ sudo ./bin/pcg install
 - Git commit author full name (`GIT_COMMIT_NAME`)
 - Git commit author email (`GIT_COMMIT_EMAIL`)
 - Log retention days (`PCG_LOG_RETENTION_DAYS`)
-- Notification mode (`telegram`, `webhook`, `both`) - at least one is required
+- Notification mode (`telegram`, `webhook`, `both`, or `later`)
 - Telegram values (`BOT_TOKEN`, `CHAT_ID`) if selected
 - Webhook URL/token if selected
 
@@ -182,7 +183,7 @@ At final confirmation, you can choose:
 
 Draft settings are saved at `/root/.pcg-agent-install-draft.env`.
 
-If an existing install is detected, installer shows an early action menu:
+If an existing installation is detected, you first choose:
 
 - `Reinstall`
 - `Uninstall`
@@ -196,14 +197,13 @@ pcg install --clear-draft
 pcg uninstall
 ```
 
-It also validates GitHub SSH auth and helps users retry after adding public keys.
-SSH auth checks are enforced only when `GIT_REMOTE_URL` is SSH; HTTPS remotes are allowed and skip SSH validation.
+For SSH remotes, the installer checks GitHub authentication and lets you retry after adding the public key. HTTPS remotes skip this SSH check.
 
 ## Console UI
 
-Installer and CLI status messages use a shared color/icon system with automatic fallback.
+The installer and CLI use colors and icons when the terminal supports them.
 
-- UTF-8 terminal: icon cues (for example `ℹ`, `✔`, `⚠`, `✖`)
+- UTF-8 terminal: icons such as `ℹ`, `✔`, `⚠`, `✖`
 - Non-UTF-8 terminal: ASCII cues (`[i]`, `[+]`, `[!]`, `[x]`)
 
 Controls:
@@ -213,7 +213,7 @@ Controls:
 
 ## Preflight simulation (`pcg-doctor`)
 
-Use this before installing/upgrading to see what will change.
+Run this before installation or an upgrade to inspect the planned changes.
 
 ```bash
 pcg preinstall-report
@@ -247,7 +247,7 @@ Checks include:
 - GitHub SSH auth + Git remote reachability
 - Notification config sanity
 
-Non-zero exit means hard failure.
+A nonzero exit status means at least one health check failed. A successful doctor run does not prove that a backup or shutdown has completed successfully.
 
 ## Runtime layout
 
@@ -258,7 +258,8 @@ Installed runtime paths:
 - Version: `/usr/local/bin/pcg-agent-version`
 - Env: `/root/.pcg-agent.env`
 - Units: `/etc/systemd/system/pcg-*.service|timer`
-- Backups (rollback snapshots): `/root/pcg-agent-backups/<timestamp>/`
+- Rollback snapshots: `/root/pcg-backups/install-<timestamp>/`, `upgrade-<timestamp>/` or `uninstall-<timestamp>/`
+- Cached installer sources: `/usr/local/share/pcg/sources/<version>/`
 
 ## Configuration
 
@@ -270,7 +271,8 @@ Important variables:
 
 - `REPO_DIR`, `REPO_BRANCH`, `GIT_REMOTE_URL`
 - `GIT_COMMIT_NAME`, `GIT_COMMIT_EMAIL`
-- `BACKUP_INCLUDE_EXTRA`
+- `BACKUP_INCLUDE_EXTRA` (additional absolute paths, separated by commas)
+- `BACKUP_LOCK_TIMEOUT_SECONDS` (defaults to 120 seconds)
 - `BOT_TOKEN`, `CHAT_ID`
 - `WEBHOOK_ENABLED`, `WEBHOOK_URL`, `WEBHOOK_BEARER_TOKEN`
 - `WEBHOOK_EVENTS` (`install,doctor,backup,shutdown` by default)
@@ -285,7 +287,13 @@ Important variables:
   - `AGENT_UPDATE_CHANNEL=stable|edge`
   - `AGENT_UPDATE_SOURCE=<git-url-or-raw-archive-url>`
 
-## Scheduled + shutdown behavior
+### Which scripts are backed up?
+
+By default, PCG collects only its own CLI and managed scripts from `/usr/local/bin`. **Other scripts are not included automatically.** Add each extra script's absolute path to `BACKUP_INCLUDE_EXTRA`, separated by commas. Review its contents for embedded credentials first.
+
+VM and LXC definitions, firewall settings and custom systemd units are refreshed on every backup, including deletions. Earlier Git commits still retain historical content.
+
+## Scheduled backups and shutdown
 
 - `pcg-backup-config.timer` triggers periodic backups via `pcg-backup-config.service`.
 - `pcg-shutdown-proxmox.service` runs graceful VM/LXC/host shutdown with pre-shutdown backup.
@@ -335,7 +343,7 @@ PCG_TEST_MODE=true ./bin/pcg doctor
 
 ### Automated Test Suite
 
-For comprehensive testing with Docker:
+Run the container test suite with Docker:
 
 ```bash
 cd tests
@@ -343,12 +351,9 @@ cd tests
 ./run-tests.sh --pve-mode   # Real PVE container (Linux only)
 ```
 
-**What it tests**: Doctor/preinstall-report, installation flow, backup script execution, 
-and shutdown script hardening (flock, shutdown-state detection).
+The suite checks doctor/preinstall reports, file staging, backup collection and retry behavior, locking, and mocked shutdown behavior. The separate guided smoke test checks installation and Save/Resume.
 
-**Windows Compatibility**: The PVE container (`ghcr.io/longqt-sea/proxmox-ve`) requires Linux 
-cgroups and does NOT work on Windows Docker. Use the default Ubuntu mode for Windows, which 
-tests script syntax, structure, and hardening without requiring real PVE.
+The PVE container (`ghcr.io/longqt-sea/proxmox-ve`) requires Linux cgroups and does not work on Windows Docker. Use the default Ubuntu mode on Windows. Container and mock tests do not establish that the scripts work on a real Proxmox host.
 
 For full PVE testing on Windows, consider WSL2, a Linux VM, or CI environments.
 
@@ -356,7 +361,7 @@ See [`tests/README.md`](tests/README.md) for detailed usage and platform-specifi
 
 ### Quick smoke test (Ubuntu)
 
-For a lightweight installer flow check on generic Ubuntu:
+Check guided installation, installed reinstall, Save/Resume and doctor in Ubuntu:
 
 ```bash
 tests/docker-guided-smoke.sh
@@ -372,14 +377,12 @@ tests/docker-guided-smoke.sh
 - Duplicate legacy/canonical units
   - Re-run `pcg install` and then `pcg doctor` to complete migration cleanup.
 
-Installed reinstall and resume use versioned source payloads under `/usr/local/share/pcg/sources/`. Older installations without that cache must run `install.sh` from a checkout once. On a first installation, choosing Save restores the previous files, so resume from the checkout with `sudo ./bin/pcg install --resume`. Cached payloads contain shipped templates, not the private runtime environment, and are retained for rollback.
+Installed reinstall and resume use versioned source payloads under `/usr/local/share/pcg/sources/`. Older installations without that cache must run `install.sh` from a checkout once. On a first installation, choosing Save restores the previous files, so resume from the checkout with `sudo ./bin/pcg install --resume`. The cache keeps the managed source files and example template for rollback. It does not contain the private runtime environment.
 
 Logs rotate on the first invocation after the date changes. Retention removes both rotated logs and the complete dated shutdown log family. A long-running process keeps its open log until it finishes.
 
 ## Security notes
 
-- The default script collection includes only the managed PCG CLI and scripts. To include another script, add its absolute path to comma-separated `BACKUP_INCLUDE_EXTRA`. Review selected files for embedded credentials before enabling collection.
-- VM and LXC definitions, firewall settings and custom systemd units are refreshed on each backup, including deletions. Earlier Git commits still retain historical content.
 - Backup requires mounted `/etc/pve/lxc` and `/etc/pve/qemu-server` directories, Git, and `flock` from util-linux. A missing configuration directory fails the run and preserves the previous collection.
 - Timer, manual and shutdown backups share a repository lock. `BACKUP_LOCK_TIMEOUT_SECONDS` defaults to 120. A clean collection still retries publishing local commits.
 - Existing staged changes or interrupted rebases need operator resolution before another backup can run.
