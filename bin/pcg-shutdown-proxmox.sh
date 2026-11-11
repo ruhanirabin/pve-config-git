@@ -121,7 +121,7 @@ logger "Proxmox $NODE_NAME shutdown initiated via $CALLER"
 /usr/local/bin/pcg-send-telegram.sh "Proxmox $NODE_NAME shutdown started at <b>$START_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
 pcg_send_webhook "shutdown" "started" "Shutdown sequence started" "Node $NODE_NAME started graceful shutdown." || true
 
-if /usr/local/bin/pcg-backup-config.sh; then
+if PCG_BACKUP_ENTRYPOINT=shutdown /usr/local/bin/pcg-backup-config.sh; then
   log "Pre-shutdown backup completed."
 else
   log "WARNING pre-shutdown backup failed; continuing shutdown."

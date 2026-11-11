@@ -1,3 +1,8 @@
+## 0.8.1
+
+- improve: record confirmed backup pushes and failures in the system journal for timer, manual and shutdown runs.
+- improve: include backup output in journalctl while retaining the configurable file log.
+
 ## 0.8.0
 
 - fix: complete the pre-shutdown backup when systemd invokes PCG during host shutdown.

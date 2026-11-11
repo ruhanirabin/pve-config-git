@@ -26,6 +26,39 @@ NODE_NAME="$(hostname -s 2>/dev/null || hostname)"
 TARGET_DIR="$REPO_DIR/$NODE_NAME"
 DATE_TAG="$(date '+%Y-%m-%d %H:%M')"
 
+STAGE=""
+BACKUP_PHASE="initialize"
+BACKUP_OUTCOME="unknown"
+BACKUP_COMMIT=""
+BACKUP_BRANCH_PUSH="not_confirmed"
+BACKUP_ENTRYPOINT="${PCG_BACKUP_ENTRYPOINT:-manual}"
+BACKUP_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+backup_finish() {
+  local rc=$? priority event payload
+  trap - EXIT
+  set +e
+  if [ -n "${STAGE:-}" ]; then
+    rm -rf -- "${STAGE:?}"
+  fi
+  if [ "$rc" -eq 0 ]; then
+    priority=user.info
+    event=backup_success
+  else
+    priority=user.err
+    event=backup_failed
+    echo "Backup failed for node=$NODE_NAME branch=$REPO_BRANCH phase=$BACKUP_PHASE exit=$rc."
+  fi
+  payload="{\"event\":\"$event\",\"run_id\":\"$BACKUP_RUN_ID\",\"entrypoint\":\"$(pcg_json_escape "$BACKUP_ENTRYPOINT")\",\"node\":\"$(pcg_json_escape "$NODE_NAME")\",\"branch\":\"$(pcg_json_escape "$REPO_BRANCH")\",\"commit\":\"$BACKUP_COMMIT\",\"branch_push\":\"$BACKUP_BRANCH_PUSH\",\"outcome\":\"$BACKUP_OUTCOME\",\"phase\":\"$BACKUP_PHASE\",\"exit_status\":$rc}"
+  if ! logger -t pcg-backup -p "$priority" -- "$payload"; then
+    echo "WARNING could not record backup outcome in the system journal."
+  fi
+  return "$rc"
+}
+trap backup_finish EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 send_telegram() {
   [[ -z "${BOT_TOKEN:-}" || -z "${CHAT_ID:-}" ]] && return 0
   if ! bash "$SCRIPT_DIR/pcg-send-telegram.sh" "$1"; then
@@ -41,6 +74,8 @@ if [[ "$PWD" == "$REPO_DIR" || "$PWD" == "$REPO_DIR/"* ]]; then
   exit 1
 fi
 
+command -v logger >/dev/null || { echo "Missing dependency: logger (util-linux)"; exit 1; }
+BACKUP_PHASE="lock"
 command -v flock >/dev/null || { echo "Missing dependency: flock (util-linux)"; exit 1; }
 mkdir -p "$REPO_DIR"
 REPO_DIR="$(cd "$REPO_DIR" && pwd -P)"
@@ -51,6 +86,7 @@ flock -w "${BACKUP_LOCK_TIMEOUT_SECONDS:-120}" 200 || {
   echo "Backup repository is busy; lock wait expired."
   exit 1
 }
+BACKUP_PHASE="prepare_repository"
 [ -d "$REPO_DIR/.git" ] || git -C "$REPO_DIR" init -b "$REPO_BRANCH"
 # Never reset an existing branch or discard another operation's work.
 if git -C "$REPO_DIR" show-ref --verify --quiet "refs/heads/$REPO_BRANCH"; then
@@ -71,11 +107,12 @@ if [ -n "$(git -C "$REPO_DIR" diff --cached --name-only)" ]; then
   exit 1
 fi
 
+BACKUP_PHASE="collect"
+
 # Build a complete new snapshot before replacing the previous collection.
 # BACKUP_SOURCE_ROOT permits isolated fixtures; production defaults to /.
 SOURCE_ROOT="${BACKUP_SOURCE_ROOT:-}"
 STAGE="$(mktemp -d "$REPO_DIR/.pcg-collection.XXXXXX")"
-trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE"/{systemd,scripts,network,etc-pve,pve-lxc,pve-qemu-server,pve-firewall,root-profile,extra}
 copy_optional() {
   local source="$1" destination="$2"
@@ -129,20 +166,27 @@ fi
 # Preserve unrelated node files while refreshing every owned collection family.
 mkdir -p "$TARGET_DIR"
 for family in systemd scripts network etc-pve pve-lxc pve-qemu-server pve-firewall root-profile extra; do
-  rm -rf "$TARGET_DIR/$family"
+  rm -rf -- "${TARGET_DIR:?}/${family:?}"
   mv "$STAGE/$family" "$TARGET_DIR/$family"
 done
 cd "$REPO_DIR"
 git add -A -- "$NODE_NAME"
 
 if git diff --cached --quiet; then
+  BACKUP_OUTCOME="unchanged"
+  BACKUP_COMMIT="$(git rev-parse --verify HEAD)"
+  BACKUP_PHASE="synchronize"
   echo "No configuration changes detected; synchronizing unpublished commits."
   pcg_git_network pull --rebase origin "$REPO_BRANCH" || {
     # An empty remote has no branch to pull yet; all other failures are fatal.
     refs="$(pcg_git_network ls-remote --heads origin "refs/heads/$REPO_BRANCH")" || exit 1
     [ -z "$refs" ] || exit 1
   }
+  BACKUP_PHASE="push_branch"
   pcg_git_network push origin "$REPO_BRANCH"
+  BACKUP_COMMIT="$(git rev-parse HEAD)"
+  BACKUP_BRANCH_PUSH="confirmed"
+  BACKUP_PHASE="complete"
   pcg_send_webhook "backup" "no_changes" "Backup synchronized" "No files changed for node $NODE_NAME; local commits pushed." || true
   exit 0
 fi
@@ -155,14 +199,22 @@ COMMIT_MSG="[$NODE_NAME] $CHANGES files changed - $DATE_TAG (agent v${AGENT_VERS
 echo "=== Full diff ==="
 echo "$FULL_DIFF"
 
+BACKUP_PHASE="commit"
+BACKUP_OUTCOME="changed"
 git commit -m "$COMMIT_MSG"
+BACKUP_COMMIT="$(git rev-parse HEAD)"
+BACKUP_PHASE="synchronize"
 remote_refs="$(pcg_git_network ls-remote --heads origin "refs/heads/$REPO_BRANCH")"
 if [ -n "$remote_refs" ]; then
     pcg_git_network pull --rebase origin "$REPO_BRANCH"
 else
   echo "Remote branch does not exist yet; skipping rebase pull."
 fi
+BACKUP_PHASE="push_branch"
 pcg_git_network push origin "$REPO_BRANCH"
+BACKUP_COMMIT="$(git rev-parse HEAD)"
+BACKUP_BRANCH_PUSH="confirmed"
+BACKUP_PHASE="push_tag"
 
 TAG_BASE="$NODE_NAME-backup-$(date '+%Y-%m-%d-%H%M')"
 TAG_NAME="$TAG_BASE"
@@ -186,4 +238,5 @@ fi
 pcg_send_webhook "backup" "success" "Backup pushed" \
   "Committed $CHANGES changed file(s) on node $NODE_NAME to branch $REPO_BRANCH." || true
 
+BACKUP_PHASE="complete"
 echo "Backup complete for $NODE_NAME (agent v${AGENT_VERSION:-unknown})."

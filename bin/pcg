@@ -306,7 +306,7 @@ map_cmds_to_packages() {
     case "$pkg_manager:$cmd" in
       apt:ssh|apt:ssh-keygen) pkg="openssh-client" ;;
       apt:systemctl) pkg="systemd" ;;
-      *:flock) pkg="util-linux" ;;
+      *:flock|*:logger) pkg="util-linux" ;;
       *:find) pkg="findutils" ;;
       *:install|*:timeout) pkg="coreutils" ;;
       apt:crontab) pkg="cron" ;;
@@ -375,7 +375,7 @@ preflight_checks() {
   local missing=0
   local c
   local -a missing_cmds=()
-  for c in bash git curl ssh ssh-keygen flock tar find install crontab timeout; do
+  for c in bash git curl ssh ssh-keygen flock tar find install crontab timeout logger; do
     if command -v "$c" >/dev/null 2>&1; then
       ui_ok "dependency: $c"
     else
@@ -975,7 +975,7 @@ collect_preinstall_report_data() {
   PRE_CANONICAL_UNITS_PRESENT=()
 
   local dep
-  for dep in bash git curl ssh ssh-keygen flock tar find install crontab timeout; do
+  for dep in bash git curl ssh ssh-keygen flock tar find install crontab timeout logger; do
     if command -v "$dep" >/dev/null 2>&1; then
       PRE_DEPS_OK+=("$dep")
     else
@@ -1692,6 +1692,7 @@ cmd_doctor() {
   doctor_check_binary flock
   doctor_check_binary tar
   doctor_check_binary timeout
+  doctor_check_binary logger
   doctor_check_binary crontab
   if is_test_mode; then
     doctor_add_result "bin:systemctl" "ok" "skipped (test mode)"
@@ -1782,7 +1783,7 @@ cmd_doctor() {
 
 cmd_backup() {
   require_root
-  "$PCG_BIN_TARGET/pcg-backup-config.sh"
+  PCG_BACKUP_ENTRYPOINT=cli "$PCG_BIN_TARGET/pcg-backup-config.sh"
 }
 
 cmd_notify() {

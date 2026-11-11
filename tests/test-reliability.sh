@@ -71,12 +71,12 @@ ensure_install_source
 [[ "$REPO_ROOT" == "$PCG_SOURCE_CACHE_ROOT/$(cat "$ROOT_DIR/VERSION")" ]] || fail 'installed source resolution'
 # A failed post-upgrade doctor must restore old files, version and settings.
 cp -a "$ROOT_DIR/bin" "$ROOT_DIR/systemd" "$ROOT_DIR/env" "$T/broken/"
-echo 0.8.1 > "$T/broken/VERSION"
+echo 0.8.2 > "$T/broken/VERSION"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$T/broken/bin/pcg"
 git -C "$T/broken" init -q
 git -C "$T/broken" -c user.name=Test -c user.email=test@example.com add .
 git -C "$T/broken" -c user.name=Test -c user.email=test@example.com commit -qm fixture
-git -C "$T/broken" tag v0.8.1
+git -C "$T/broken" tag v0.8.2
 PCG_RUNTIME_VERSION_FILE="$PCG_BIN_TARGET/pcg-agent-version"
 printf 'AGENT_VERSION="%s"\n' "$(cat "$ROOT_DIR/VERSION")" > "$PCG_RUNTIME_VERSION_FILE"
 PCG_BACKUP_DIR_BASE="$T/snapshots"
@@ -84,7 +84,7 @@ PCG_UPGRADE_LOG="$T/upgrade.log"
 AGENT_UPDATE_SOURCE="$T/broken"
 old_binary="$(sha256sum "$PCG_BIN_TARGET/pcg")"
 set +e
-(TMPDIR="$T"; export TMPDIR; require_root() { :; }; pcg_load_env() { :; }; cmd_upgrade --target v0.8.1) > "$T/upgrade-output" 2>&1
+(TMPDIR="$T"; export TMPDIR; require_root() { :; }; pcg_load_env() { :; }; cmd_upgrade --target v0.8.2) > "$T/upgrade-output" 2>&1
 rc=$?
 set -e
 [[ "$rc" -ne 0 ]] || fail 'failed doctor accepted'
@@ -122,6 +122,8 @@ export GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME
 git init -q --bare "$T/remote"
 git init -q -b main "$REPO_DIR"
 git -C "$REPO_DIR" remote add origin "$T/remote"
+logger() { printf '%s\n' "${@: -1}" >> "$T/journal-events.jsonl"; }
+export -f logger
 run_backup() { (cd "$T" && bash "$ROOT_DIR/bin/pcg-backup-config.sh") > "$T/output" 2>&1 || { cat "$T/output"; return 1; }; }
 run_backup
 node="$(hostname -s)"
@@ -165,4 +167,14 @@ if run_backup; then fail 'missing PVE mount reported success'; fi
 mv "$F/etc/pve-hidden" "$F/etc/pve"
 # A competing entry point must not touch the repository.
 (exec 201>"$REPO_DIR/.pcg-backup.lock"; flock 201; BACKUP_LOCK_TIMEOUT_SECONDS=0 run_backup && exit 1; exit 0) || fail 'lock did not serialize'
+python3 - <<'CHECK'
+import json,os
+from pathlib import Path
+rows=[json.loads(x) for x in (Path(os.environ['T'])/'journal-events.jsonl').read_text().splitlines()]
+assert any(x['event']=='backup_success' and x['branch_push']=='confirmed' and x['outcome']=='changed' and len(x['commit'])==40 for x in rows)
+assert any(x['event']=='backup_success' and x['branch_push']=='confirmed' and x['outcome']=='unchanged' for x in rows)
+assert any(x['event']=='backup_failed' and x['phase']=='push_branch' and x['branch_push']=='not_confirmed' and x['exit_status']!=0 for x in rows)
+assert any(x['event']=='backup_failed' and x['phase']=='collect' for x in rows)
+assert any(x['event']=='backup_failed' and x['phase']=='lock' for x in rows)
+CHECK
 echo 'Reliability regressions: PASS'

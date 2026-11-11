@@ -10,6 +10,7 @@ source "$PCG_TEST_LIB"
 pcg_load_version() { AGENT_VERSION=test; }
 pcg_load_env() { :; }
 pcg_send_webhook() { :; }
+logger() { :; }
 LIB
 mkdir -p "$TEST_DIR/repo"
 # The in-repo guard safely stops execution after real log initialization.
