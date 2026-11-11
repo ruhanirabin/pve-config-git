@@ -39,7 +39,7 @@ I made this because I wanted to look back through Git and see what had changed i
 - Lifecycle CLI:
   - `pcg install [--resume|--clear-draft]`
   - `pcg doctor [--json]`
-  - `pcg preinstall-report [--json]` (alias: `pcg-doctor`)
+  - `pcg preinstall-report [--json]` (alias: `pcg pcg-doctor`)
   - `pcg backup`
   - `pcg notify [message]`
   - `pcg uninstall`
@@ -223,15 +223,15 @@ Controls:
 - `NO_COLOR=1` disables ANSI colors
 - `PCG_UI_ASCII=1` forces ASCII icons
 
-## Preflight simulation (`pcg-doctor`)
+## Preinstall simulation
 
 Run this before installation or an upgrade to inspect the planned changes.
 
 ```bash
 pcg preinstall-report
 pcg preinstall-report --json
-# alias
-pcg-doctor
+# subcommand alias
+pcg pcg-doctor
 ```
 
 Report includes:
@@ -319,50 +319,168 @@ VM and LXC definitions, firewall settings and custom systemd units are refreshed
 
 ### Backup results in the journal
 
-Timer, CLI and shutdown backups record their final result under the `pcg-backup` journal tag. A `backup_success` event confirms that the branch push completed. A `backup_failed` event includes the failure phase and exit status. Each event also records the node, branch, commit and entry point.
+Timer, CLI and shutdown backups record their final result under the `pcg-backup` journal tag. A `backup_success` event confirms that the branch push completed. A `backup_failed` event includes the failure phase and exit status.
 
-View all outcomes or failures only:
+Run these as root on the Proxmox host. The commands show today's outcomes, filter failures, and follow new events as they arrive.
 
 ```bash
 journalctl -t pcg-backup --since today --no-pager
 journalctl -t pcg-backup -p err --since today --no-pager
+journalctl -t pcg-backup -f
 ```
 
-For the detailed output of systemd backup runs:
+For detailed output from the backup service, including Git errors and systemd failures:
 
 ```bash
 journalctl -u pcg-backup-config.service -n 100 --no-pager
+systemctl status pcg-backup-config.service
 ```
 
-The script also keeps its file log at `BACKUP_LOG_FILE`, which defaults to `/var/log/pcg-backup-config.log`. If a push fails, check the journal's `phase` and `branch_push` fields. A tag failure can occur after the branch commit has already reached GitHub.
+Each outcome is a JSON message with these fields.
+
+| Field | How to read it |
+| --- | --- |
+| `event` | `backup_success` or `backup_failed` for the whole run |
+| `run_id` | Identifies one run when messages from several entry points overlap |
+| `entrypoint` | `systemd`, `cli`, `shutdown`, or `manual` for direct script execution |
+| `node`, `branch`, `commit` | The node, target branch and local commit involved |
+| `branch_push` | `confirmed` after a successful branch push, otherwise `not_confirmed` |
+| `outcome` | `changed` or `unchanged` for the collected files, or `unknown` before that check |
+| `phase` | The current step, such as `collect`, `synchronize`, `push_branch`, `push_tag`, or `complete` |
+| `exit_status` | `0` for success, otherwise the process exit status |
+
+An `unchanged` run can still publish a commit left behind by an earlier failed push. A failed run with `branch_push=confirmed` and `phase=push_tag` means the branch push completed before the tag step failed. Check the local and remote tags before retrying an individual tag push. An unchanged backup retries the branch push, while tag recovery may need operator action.
+
+Exit status `143` means the run received SIGTERM. This can happen when shutdown stops a scheduled backup. Check for a later successful `shutdown` backup before treating it as an unresolved GitHub failure. A timeout normally reports exit status `124` and network guidance.
+
+If the tag query is empty, inspect the unit journal. Systemd can reject a missing environment file or executable before the script starts. The script also keeps its file log at `BACKUP_LOG_FILE`, which defaults to `/var/log/pcg-backup-config.log`.
+
+Journald controls journal retention. `PCG_LOG_RETENTION_DAYS` and its overrides control PCG's file logs. Previous-boot journal history depends on the host's journald storage settings.
 
 ## Upgrades
 
+Updates run when an operator starts them. The timer schedules configuration backups.
+
+Run update commands as root on each Proxmox host. Keep the existing backup repository URL and local backup directory when reviewing the prompts. That repository retains its configuration history across updates.
+
+### Guided update with the single-line installer
+
+Use the bootstrap installer for a first update from older PCG, `pa-*`, or `proxmox-agent` installations. It runs the newly downloaded installer, including the current migration and rollback fixes.
+
 ```bash
-pcg upgrade --channel stable --target v0.7.8
+PA_INSTALL_MODE=remote bash -c "$(curl -fsSL https://raw.githubusercontent.com/ruhanirabin/pve-config-git/main/install.sh)"
+```
+
+`PA_INSTALL_MODE=remote` forces a fresh source download even when the current directory contains an older PCG checkout. The default bootstrap can reuse a checkout containing `bin/pcg` and `VERSION`.
+
+1. Confirm the installation request after reviewing the preinstall report.
+2. If PCG is detected, choose **Reinstall** and confirm it.
+3. Review the existing repository, author, retention and notification settings. Legacy settings are migrated before defaults are installed. Reconfirm the notification mode you want to use.
+4. Choose **Install** at the final prompt.
+5. Run the verification commands below.
+
+The bootstrap fetches the current `main` branch. Changes become available through this command after they are merged. Tagged upgrades provide a specific version to install.
+
+### Versioned stable upgrades
+
+Set the following in `/root/.pcg-agent.env` once the host has the current installer and CLI:
+
+```bash
+AGENT_UPDATE_CHANNEL=stable
+AGENT_UPDATE_SOURCE=https://github.com/ruhanirabin/pve-config-git.git
+```
+
+These settings refer to the PCG application source. Your configuration backup destination remains in `GIT_REMOTE_URL`.
+
+| Setting | Purpose |
+| --- | --- |
+| `AGENT_UPDATE_SOURCE` | Downloads PCG code for upgrades |
+| `GIT_REMOTE_URL` | Receives this host's configuration backups |
+| `REPO_DIR` | Local working directory for configuration backups |
+
+Upgrade to the highest version-sorted Git tag, or select an existing tag explicitly:
+
+```bash
+pcg upgrade --channel stable
+pcg upgrade --channel stable --target v0.8.1
+```
+
+Choose one command for the update. The explicit target example requires a published `v0.8.1` tag. If the source has no tags, the stable command cannot resolve a target. Use the guided update while a tagged release is being prepared.
+
+Stable selection uses a version-sorted tag list, which can include prerelease tags. Use `--target` to select an approved version.
+
+### What happens during an update
+
+The installer or upgrader snapshots managed scripts, units, the runtime version, environment files and unit enablement. It then applies the source files, reloads systemd and validates the installed runtime with doctor.
+
+An apply or post-update doctor failure restores the managed snapshot. Install snapshots are saved under `/root/pcg-backups/install-<timestamp>/`, and upgrade snapshots under `/root/pcg-backups/upgrade-<timestamp>/`. Git history and the configuration backup working tree are separate from these snapshots.
+
+Existing settings remain available to the installer as prompt defaults. Review them before confirming. An upgrade preserves the existing environment file, so compare it with `env/pcg-agent.env.example` when you need a newly added option.
+
+### Verify publication after updating
+
+```bash
+pcg doctor --json
+pcg backup
+journalctl -t pcg-backup --since today --no-pager
+systemctl status pcg-backup-config.timer
+```
+
+Doctor checks the installed files, services, authentication, repository read access and dry-run push access. A real backup verifies that the backup branch accepts publication. Look for `backup_success`, `branch_push=confirmed` and the expected commit in the journal.
+
+### Save, resume and recovery
+
+Choosing **Save** writes a private draft at `/root/.pcg-agent-install-draft.env` and restores the previous managed installation. Choosing **Exit** also restores the previous managed files. After a first installation is paused, the draft can remain while the CLI has been removed by restoration.
+
+On an installation with matching cached sources, resume through the installed CLI:
+
+```bash
+pcg install --resume
+```
+
+For a transition from older versions, use a current source checkout for the resume step. From that checkout, run:
+
+```bash
+./bin/pcg install --resume
+```
+
+The bootstrap does not forward command-line options to `pcg install`. Rerunning the bootstrap offers to load an existing draft, which is another way to continue.
+
+If an update fails, read the reported snapshot path and run doctor again. Upgrade metadata is written to `/var/log/pcg-upgrade.log`. PCG has no public `rollback` command. Automatic restoration handles failed application or validation. For a deliberate return to an older tagged version, select that tag with `pcg upgrade --channel stable --target <previous-tag>`, then verify it again.
+
+### Update quirks
+
+- `pcg install` uses its checkout or matching local source cache. To download newer code, use the remote bootstrap or `pcg upgrade`.
+- Older installations may have no cache under `/usr/local/share/pcg/sources/`. Use the current bootstrap or a current checkout for their first migration.
+- If the selected source's `VERSION` matches the installed version, `pcg upgrade` reports that it is up to date. Use guided reinstallation if you need to repair files for the same version.
+- Run one install or upgrade session at a time on a node. The bootstrap shares `/tmp/pcg-install`, and maintenance sessions change the same installed files.
+- Git network operations run without credential prompts. A key that works only in your interactive SSH agent may be unavailable to the backup service. Configure access for root's systemd environment and verify the service itself.
+- APT may report subscription errors for Proxmox enterprise feeds. During VM testing, Git still installed from the available Debian indexes. Review package-manager errors if a required command remains missing.
+- Default script backups now collect the managed PCG files. Add other scripts explicitly through `BACKUP_INCLUDE_EXTRA`, after checking them for credentials. Older Git commits can retain files collected by earlier versions.
+- Choosing **Do it later** saves notification placeholders. Replace those values before expecting Telegram or webhook delivery.
+
+### Edge source archives
+
+The edge channel expects an archive URL in `AGENT_UPDATE_SOURCE`. Set an archive source in the runtime environment file before an edge update:
+
+```bash
+AGENT_UPDATE_CHANNEL=edge
+AGENT_UPDATE_SOURCE=https://github.com/ruhanirabin/pve-config-git/archive/refs/heads/main.tar.gz
+```
+
+Then run:
+
+```bash
 pcg upgrade --channel edge
 ```
 
-Upgrade flow:
-
-1. Snapshot current managed files.
-2. Fetch target source.
-3. Apply canonical files.
-4. Re-enable canonical units.
-5. Run post-upgrade doctor.
-6. Roll back automatically on failure.
+Changing `--channel` alone does not convert a stable Git URL into an archive URL. A `.tar.gz` source uses the required `tar` command. A `.zip` source also needs `unzip`. Restore the stable channel and Git source settings when returning to tagged updates.
 
 ## Legacy migration
 
-Legacy names are auto-detected and migrated during `install` and `upgrade`.
+During migration, the installer preserves legacy settings and disables the older timers and services. It removes the legacy scripts and units after validation succeeds.
 
-After successful migration, legacy artifacts are removed to prevent duplicate timers/services.
-
-For already-deployed older nodes, run once per node:
-
-```bash
-pcg install
-```
+For an older node's first migration, use the guided remote update above. After it completes, verify `pcg doctor --json` and a real backup on that node.
 
 ## Test mode (safe lab runs)
 
@@ -417,7 +535,7 @@ tests/docker-guided-smoke.sh
 - Duplicate legacy/canonical units
   - Re-run `pcg install` and then `pcg doctor` to complete migration cleanup.
 
-Installed reinstall and resume use versioned source payloads under `/usr/local/share/pcg/sources/`. Older installations without that cache must run `install.sh` from a checkout once. On a first installation, choosing Save restores the previous files, so resume from the checkout with `sudo ./bin/pcg install --resume`. The cache keeps the managed source files and example template for rollback. It does not contain the private runtime environment.
+Installed reinstall and resume use versioned source payloads under `/usr/local/share/pcg/sources/`. The cache contains managed source files and the example template. See the upgrade recovery instructions for older installations and saved drafts.
 
 Logs rotate on the first invocation after the date changes. Retention removes both rotated logs and the complete dated shutdown log family. A long-running process keeps its open log until it finishes.
 

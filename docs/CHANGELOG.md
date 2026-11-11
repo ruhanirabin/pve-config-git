@@ -1,29 +1,16 @@
 ## 0.8.1
 
-- improve: record confirmed backup pushes and failures in the system journal for timer, manual and shutdown runs.
-- improve: include backup output in journalctl while retaining the configurable file log.
-
-## 0.8.0
-
-- fix: complete the pre-shutdown backup when systemd invokes PCG during host shutdown.
-- fix: preserve the host's requested reboot or power-off action after systemd guest shutdown.
-
-## 0.7.30
-
-- fix: check unattended repository read access and dry-run push access before completing installation.
-- fix: bound Git network operations and stop credential prompts in backups, checks and upgrades.
-- improve: explain SSH, HTTPS, repository, network and push failures without logging credential-bearing errors.
-
-## 0.7.29
-
-- fix: collect VM definitions and remove deleted configurations from new backups.
-- fix: serialize backups and retry unpublished commits after temporary push failures.
-- fix: collect only managed PCG scripts by default; select other scripts explicitly with BACKUP_INCLUDE_EXTRA (breaking change).
-- fix: preserve legacy settings and roll back incomplete installation or upgrade attempts.
-- fix: restore canonical services and support installed reinstall/resume using cached sources.
-- fix: continue guest shutdown after forced stops and honor the system stopping guard.
-- fix: rotate active logs, expire dated shutdown logs, and bound backup notifications.
-- fix: keep invalid menu warnings separate from selected answers.
+- fix: include VM definitions and remove deleted VM, LXC, firewall, unit and selected extra files from new backups.
+- fix: serialize timer, manual and shutdown backups and retry unpublished commits after a failed push.
+- fix: preserve legacy settings, migrate canonical service names and restore managed files when installation or upgrade validation fails.
+- fix: support installed reinstall and resume through versioned local source payloads, including Save and Exit recovery.
+- fix: complete systemd pre-shutdown backups, continue after forced guest stops and preserve the requested reboot or power-off action.
+- fix: check unattended repository read and dry-run push access and bound Git network operations.
+- improve: report SSH, HTTPS, network, repository and push failures with credential-safe guidance.
+- improve: record backup success and failure in journalctl with the entry point, commit, push state and failure phase while retaining file logs.
+- fix: rotate active logs, expire the dated shutdown log family and bound backup Telegram requests.
+- fix: keep invalid menu warnings out of captured answers and resolve Proxmox logger dependencies through bsdutils.
+- removed: automatic collection of unrelated /usr/local/bin scripts. Breaking change: select additional scripts through BACKUP_INCLUDE_EXTRA and review their contents for credentials.
 
 ## 0.7.28
 
