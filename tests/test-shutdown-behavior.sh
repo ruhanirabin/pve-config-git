@@ -4,6 +4,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 export T ROOT_DIR
+unset INVOCATION_ID
 # Redirect fixed production paths in a disposable copy; never run host shutdown.
 python3 - <<'PY'
 from pathlib import Path
@@ -46,4 +47,12 @@ bash "$T/shutdown.sh" --execute
 for expected in 'vm stop 100' 'vm stop 101' 'lxc stop 200' host; do
   grep -qx "$expected" "$T/actions"
 done
-echo 'Shutdown stopping guard and forced guest continuation: PASS'
+# Systemd invokes the service after entering stopping. It must perform the
+# backup/guest flow and leave the selected halt/reboot action to systemd.
+: > "$T/actions"
+INVOCATION_ID=pcg-test MOCK_STATE=stopping bash "$T/shutdown.sh" --execute
+for expected in 'vm stop 100' 'vm stop 101' 'lxc stop 200'; do
+  grep -qx "$expected" "$T/actions"
+done
+! grep -qx host "$T/actions"
+echo 'Shutdown manual/systemd guards and forced guest continuation: PASS'

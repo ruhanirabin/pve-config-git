@@ -1,3 +1,8 @@
+## 0.8.0
+
+- fix: complete the pre-shutdown backup when systemd invokes PCG during host shutdown.
+- fix: preserve the host's requested reboot or power-off action after systemd guest shutdown.
+
 ## 0.7.30
 
 - fix: check unattended repository read access and dry-run push access before completing installation.

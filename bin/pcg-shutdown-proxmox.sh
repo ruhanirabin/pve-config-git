@@ -69,7 +69,7 @@ fi
 # ============================================================
 
 system_state="$(systemctl is-system-running 2>/dev/null || true)"
-if [ "$system_state" = "stopping" ]; then
+if [ "$system_state" = "stopping" ] && [ "$CALLER" != "systemd" ]; then
   log "Abort: system already in stopping state"
   exit 1
 fi
@@ -156,6 +156,11 @@ log "Sending final shutdown notification"
 
 /usr/local/bin/pcg-send-telegram.sh "Proxmox host <b>$NODE_NAME</b> shutting down at <b>$FINAL_TS</b> (agent v${AGENT_VERSION:-unknown})" || true
 pcg_send_webhook "shutdown" "success" "Shutdown sequence complete" "Node $NODE_NAME is shutting down now." || true
+
+if [ "$CALLER" = "systemd" ]; then
+  log "Guest shutdown complete; continuing the host action already queued by systemd"
+  exit 0
+fi
 
 sleep 3
 

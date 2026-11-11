@@ -71,12 +71,12 @@ ensure_install_source
 [[ "$REPO_ROOT" == "$PCG_SOURCE_CACHE_ROOT/$(cat "$ROOT_DIR/VERSION")" ]] || fail 'installed source resolution'
 # A failed post-upgrade doctor must restore old files, version and settings.
 cp -a "$ROOT_DIR/bin" "$ROOT_DIR/systemd" "$ROOT_DIR/env" "$T/broken/"
-echo 0.8.0 > "$T/broken/VERSION"
+echo 0.8.1 > "$T/broken/VERSION"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$T/broken/bin/pcg"
 git -C "$T/broken" init -q
 git -C "$T/broken" -c user.name=Test -c user.email=test@example.com add .
 git -C "$T/broken" -c user.name=Test -c user.email=test@example.com commit -qm fixture
-git -C "$T/broken" tag v0.8.0
+git -C "$T/broken" tag v0.8.1
 PCG_RUNTIME_VERSION_FILE="$PCG_BIN_TARGET/pcg-agent-version"
 printf 'AGENT_VERSION="%s"\n' "$(cat "$ROOT_DIR/VERSION")" > "$PCG_RUNTIME_VERSION_FILE"
 PCG_BACKUP_DIR_BASE="$T/snapshots"
@@ -84,7 +84,7 @@ PCG_UPGRADE_LOG="$T/upgrade.log"
 AGENT_UPDATE_SOURCE="$T/broken"
 old_binary="$(sha256sum "$PCG_BIN_TARGET/pcg")"
 set +e
-(TMPDIR="$T"; export TMPDIR; require_root() { :; }; pcg_load_env() { :; }; cmd_upgrade --target v0.8.0) > "$T/upgrade-output" 2>&1
+(TMPDIR="$T"; export TMPDIR; require_root() { :; }; pcg_load_env() { :; }; cmd_upgrade --target v0.8.1) > "$T/upgrade-output" 2>&1
 rc=$?
 set -e
 [[ "$rc" -ne 0 ]] || fail 'failed doctor accepted'
