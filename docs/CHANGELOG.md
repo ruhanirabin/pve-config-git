@@ -1,3 +1,7 @@
+## 0.8.2
+
+- fix: show the current Proxmox (PVE) Config Git name and repository URL during guided installation, with readable ASCII dividers.
+
 ## 0.8.1
 
 - improve: publish versioned upgrade tags automatically when VERSION changes on main, after validation and regression checks.
