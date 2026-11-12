@@ -70,6 +70,8 @@ VERSION_FILE="$T/missing/VERSION"
 ensure_install_source
 [[ "$REPO_ROOT" == "$PCG_SOURCE_CACHE_ROOT/$(cat "$ROOT_DIR/VERSION")" ]] || fail 'installed source resolution'
 # A failed post-upgrade doctor must restore old files, version and settings.
+installed_version=0.8.1
+pcg_load_version() { AGENT_VERSION="$installed_version"; }
 cp -a "$ROOT_DIR/bin" "$ROOT_DIR/systemd" "$ROOT_DIR/env" "$T/broken/"
 echo 0.8.2 > "$T/broken/VERSION"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$T/broken/bin/pcg"
@@ -78,7 +80,7 @@ git -C "$T/broken" -c user.name=Test -c user.email=test@example.com add .
 git -C "$T/broken" -c user.name=Test -c user.email=test@example.com commit -qm fixture
 git -C "$T/broken" tag v0.8.2
 PCG_RUNTIME_VERSION_FILE="$PCG_BIN_TARGET/pcg-agent-version"
-printf 'AGENT_VERSION="%s"\n' "$(cat "$ROOT_DIR/VERSION")" > "$PCG_RUNTIME_VERSION_FILE"
+printf 'AGENT_VERSION="%s"\n' "$installed_version" > "$PCG_RUNTIME_VERSION_FILE"
 PCG_BACKUP_DIR_BASE="$T/snapshots"
 PCG_UPGRADE_LOG="$T/upgrade.log"
 AGENT_UPDATE_SOURCE="$T/broken"
@@ -89,7 +91,7 @@ rc=$?
 set -e
 [[ "$rc" -ne 0 ]] || fail 'failed doctor accepted'
 [[ "$(sha256sum "$PCG_BIN_TARGET/pcg")" == "$old_binary" ]] || fail 'upgrade binary rollback'
-grep -q "$(cat "$ROOT_DIR/VERSION")" "$PCG_RUNTIME_VERSION_FILE" || fail 'upgrade version rollback'
+grep -Fxq "AGENT_VERSION=\"$installed_version\"" "$PCG_RUNTIME_VERSION_FILE" || fail 'upgrade version rollback'
 grep -q 'rolled back' "$T/upgrade-output" || { cat "$T/upgrade-output"; fail 'rollback not reached'; }
 # Daily families and continuously appended logs both expire.
 mkdir -p "$T/logs"

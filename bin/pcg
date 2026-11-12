@@ -34,20 +34,15 @@ ui_warn() { pcg_ui_warn "$*" >&2; }
 ui_err() { pcg_ui_err "$*"; }
 
 print_cli_divider() {
-  local width=55
-  local ch="-"
-  if [ "${PCG_UI_ICON_STEP:-[>]}" = "➤" ]; then
-    ch="━"
-  fi
-  echo "${PCG_UI_C_BLUE}$(printf "%${width}s" "" | tr ' ' "$ch")${PCG_UI_C_RESET}"
+  printf '%s\n' "${PCG_UI_C_BLUE}-------------------------------------------------------${PCG_UI_C_RESET}"
 }
 
 print_install_identity_block() {
   print_cli_divider
-  echo "${PCG_UI_C_BOLD}Proxmox Cluster Guardian Installer${PCG_UI_C_RESET}"
+  echo "${PCG_UI_C_BOLD}Proxmox (PVE) Config Git Installer${PCG_UI_C_RESET}"
   echo "${PCG_UI_C_CYAN}Version:${PCG_UI_C_RESET} v$(get_repo_version)"
   echo "${PCG_UI_C_CYAN}By:${PCG_UI_C_RESET} Ruhani Rabin"
-  echo "${PCG_UI_C_CYAN}Website:${PCG_UI_C_RESET} https://github.com/ruhanirabin/proxmox-agent"
+  echo "${PCG_UI_C_CYAN}Website:${PCG_UI_C_RESET} https://github.com/ruhanirabin/pve-config-git"
   print_cli_divider
 }
 
@@ -1574,7 +1569,6 @@ cmd_install() {
   fi
 
   print_install_identity_block
-  echo "${C_BOLD}Proxmox Agent installer${C_RESET}"
   ui_info "Starting guided installation..."
   if [ "$force_resume" -eq 1 ]; then
     ui_info "Resume mode enabled: saved settings will be loaded."

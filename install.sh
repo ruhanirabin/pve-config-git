@@ -8,7 +8,6 @@ PA_REPO_SLUG="${PA_REPO_SLUG:-ruhanirabin/pve-config-git}"
 PA_INSTALL_MODE="${PA_INSTALL_MODE:-auto}"
 PA_BANNER_FILE=""
 PA_CAN_COLOR=0
-PA_UTF8=0
 
 if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ] && [ "${TERM:-}" != "dumb" ]; then
   PA_CAN_COLOR=1
@@ -40,7 +39,6 @@ ICON_STEP="[>]"
 ICON_Q="[?]"
 
 if [ -t 1 ] && [ "${PA_UI_ASCII:-}" != "1" ] && locale charmap 2>/dev/null | grep -qi "utf-8"; then
-  PA_UTF8=1
   ICON_INFO="ℹ"
   ICON_OK="✔"
   ICON_WARN="⚠"
@@ -59,12 +57,7 @@ ui_title() { echo "${C_BOLD}$*${C_RESET}" >&2; }
 die() { ui_err "$*"; exit 1; }
 
 print_divider() {
-  local width=55
-  local ch="-"
-  if [ "$PA_UTF8" -eq 1 ]; then
-    ch="━"
-  fi
-  printf '%s\n' "$(printf "%${width}s" "" | tr ' ' "$ch")" >&2
+  printf '%s\n' '-------------------------------------------------------' >&2
 }
 
 get_installer_version() {
@@ -285,7 +278,7 @@ print_intro() {
   installer_version="$(get_installer_version)"
   repo_url="https://github.com/${PA_REPO_SLUG}"
   print_divider
-  echo "${C_BOLD}Proxmox (PVE) Config Git${C_RESET}" >&2
+  echo "${C_BOLD}Proxmox (PVE) Config Git Installer${C_RESET}" >&2
   echo "${C_CYAN}Version:${C_RESET} v${installer_version}" >&2
   echo "${C_CYAN}By:${C_RESET} Ruhani Rabin" >&2
   echo "${C_CYAN}Website:${C_RESET} ${repo_url}" >&2
